@@ -1,5 +1,7 @@
 import logging
 import os
+import tempfile
+from pathlib import Path
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -8,17 +10,19 @@ try:
     from backend.detector import ObjectDetector
     from backend.reconstructor import Reconstructor3D
     from backend.utils import encode_image, decode_image
+    from backend.video_input import analyze_video
 except ModuleNotFoundError:
     # Also support the documented "python backend/server.py" launch command.
     from detector import ObjectDetector
     from reconstructor import Reconstructor3D
     from utils import encode_image, decode_image
+    from video_input import analyze_video
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = 256 * 1024 * 1024
 CORS(app)
 
 detector = ObjectDetector()
@@ -33,6 +37,37 @@ def _json_object():
 @app.route('/api/health', methods=['GET'])
 def health():
     return jsonify({'status': 'ok', 'message': 'Server is running'})
+
+
+@app.route('/api/video/analyze', methods=['POST'])
+def analyze_uploaded_video():
+    """Extract representative video frames and assess capture suitability.
+    This endpoint is input analysis only; it does not claim to reconstruct 3D.
+    """
+    upload = request.files.get('video')
+    if upload is None or not upload.filename:
+        return jsonify({'error': '请先选择一个视频文件'}), 400
+    suffix = Path(upload.filename).suffix.lower()
+    if suffix not in {'.mp4', '.mov', '.m4v', '.avi', '.mkv', '.webm'}:
+        return jsonify({'error': '不支持该视频扩展名。请使用 MP4、MOV、M4V、AVI、MKV 或 WebM'}), 400
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(prefix='photocatch-video-', suffix=suffix, delete=False) as tmp:
+            tmp_path = tmp.name
+            upload.save(tmp)
+        report = analyze_video(tmp_path)
+        return jsonify(report)
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 422
+    except Exception:
+        logger.exception("Video input analysis failed")
+        return jsonify({'error': '视频分析失败；请检查文件是否完整且可解码'}), 500
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                logger.warning("Could not remove temporary upload %s", tmp_path)
 
 
 @app.route('/api/detect', methods=['POST'])
