@@ -7,6 +7,7 @@ PhotoCatch 是一个本地运行的实验性原型：通过摄像头抓取单帧
 ## 当前功能
 
 - 本地 Flask API：健康检查、候选区域检测、ROI 网格生成。
+- 视频导入（MP4/MOV 等）、时间分布抽帧、清晰度/亮度/特征匹配初检和代表帧预览。
 - 摄像头捕获、候选区域选择和 API 错误提示。
 - Three.js 交互式网格预览：拖动旋转、滚轮缩放。
 - 导出当前网格为 JSON。
@@ -60,6 +61,7 @@ python -m pytest -q
 ## API
 
 - `GET /api/health`
+- `POST /api/video/analyze`：multipart/form-data，字段名 `video`；提取最多 24 帧并返回清晰度、亮度、ORB 特征匹配启发式指标及预览帧。初检不是重建结果，也不能单独证明相机运动或 SfM 可解。
 - `POST /api/detect`：JSON body `{"image":"data:image/jpeg;base64,..."}`
 - `POST /api/reconstruct`：JSON body 包含图像和整数边界框 `{"image":"...","bbox":[x,y,width,height]}`
 - `GET /api/models`
@@ -76,5 +78,5 @@ python -m pytest -q
 - 真实浏览器端到端流程（摄像头 → 检测 → 重建 → WebGL 预览）。
 - 多类物体检测的准确率、跨视频稳定性和性能基准。
 - 更稳健的噪声/自交轮廓处理。
-- 多视角深度估计或真正的摄影测量重建。
+- 真正的多视角摄影测量重建（COLMAP SfM/MVS）；视频输入初检目前只做启发式质量评估，并不输出三维模型。
 - GLB/GLTF 导出、设置持久化和设备兼容性测试。
