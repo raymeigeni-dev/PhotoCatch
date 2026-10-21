@@ -54,10 +54,9 @@ class Reconstructor3D:
         
         n_verts = len(normalized_contour)
         
-        for i in range(n_verts - 1):
-            faces.append([i, i + 1, n_verts + i + 1])
-            faces.append([i, n_verts + i + 1, n_verts + i])
-        
+        # Build each contour edge exactly once. The former second loop duplicated
+        # all side quads for edges 0..n_verts-2, creating overlapping faces and
+        # non-manifold edges. Modulo indexing also closes the final contour edge.
         for i in range(n_verts):
             next_i = (i + 1) % n_verts
             faces.append([i, next_i, n_verts + next_i])
