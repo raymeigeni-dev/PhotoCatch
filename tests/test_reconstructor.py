@@ -52,3 +52,24 @@ def test_contour_mesh_is_closed_and_manifold():
     assert all(count == 2 for count in edge_counts.values()), (
         f"mesh must be closed and manifold; edge-use counts: {sorted(set(edge_counts.values()))}"
     )
+
+
+def test_concave_polygon_triangulation_preserves_area():
+    # A simple concave "arrow" polygon with known area 3.0.
+    points = np.array(
+        [[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [1.0, 1.0], [0.0, 2.0]]
+    )
+    triangles = Reconstructor3D._triangulate_polygon(points)
+
+    assert len(triangles) == len(points) - 2
+    assert all(len(set(triangle)) == 3 for triangle in triangles)
+    assert all(0 <= index < len(points) for triangle in triangles for index in triangle)
+
+    triangle_area = 0.0
+    for a, b, c in triangles:
+        pa, pb, pc = points[[a, b, c]]
+        cross = (pb[0] - pa[0]) * (pc[1] - pa[1]) - (pb[1] - pa[1]) * (pc[0] - pa[0])
+        assert abs(cross) > 1e-12, "triangulation emitted a degenerate triangle"
+        triangle_area += abs(cross) / 2
+
+    assert np.isclose(triangle_area, 3.0)
