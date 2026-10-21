@@ -34,6 +34,13 @@
         <div class="video-wrap"><video id="video" autoplay muted playsinline></video><div class="placeholder" id="videoPlaceholder">启动摄像头后，将目标放入画面中央。</div></div>
         <canvas id="capture"></canvas>
         <div class="actions">
+          <label for="videoFile">导入视频（MP4 / MOV 等）</label>
+          <input id="videoFile" type="file" accept="video/mp4,video/quicktime,video/x-m4v,video/x-msvideo,video/x-matroska,video/webm,.mp4,.mov,.m4v,.avi,.mkv,.webm">
+          <button class="primary" id="analyzeVideo">提取多帧并评估</button>
+        </div>
+        <div id="videoReport" class="message" role="status" aria-live="polite">可先导入视频，检查清晰度、可匹配特征和视角变化。此步骤只评估输入，不会声称已经重建 3D。</div>
+        <div id="framePreviews" class="actions" aria-label="抽取的视频帧预览"></div>
+        <div class="actions">
           <button class="primary" id="startCamera">启动摄像头</button>
           <button id="stopCamera" disabled>关闭摄像头</button>
           <button id="detect" disabled>检测当前帧</button>
@@ -117,6 +124,43 @@
       frameDataUrl = capture.toDataURL('image/jpeg',0.9);
       return frameDataUrl;
     }
+    async function analyzeVideoFile() {
+      const file = $('videoFile').files && $('videoFile').files[0];
+      if (!file) { $('videoReport').textContent = '请先选择一个视频文件。'; $('videoReport').dataset.kind='bad'; return; }
+      const button = $('analyzeVideo'); button.disabled = true;
+      $('videoReport').textContent = '正在上传并分析视频帧；视频较大时可能需要一些时间…';
+      $('framePreviews').replaceChildren();
+      try {
+        const form = new FormData(); form.append('video', file, file.name);
+        let response;
+        try { response = await fetch(API_BASE + '/api/video/analyze', {method:'POST', body:form}); }
+        catch (error) { throw new Error('无法连接后端。请确认服务已启动：' + API_BASE); }
+        const report = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(report.error || ('HTTP ' + response.status));
+        const v=report.video||{}, q=report.quality||{}, s=report.sampling||{};
+        const summary = [
+          report.message || '分析完成',
+          '视频：'+(v.width||'?')+'×'+(v.height||'?')+'，'+(v.duration_seconds??'?')+' 秒，'+(v.fps??'?')+' FPS',
+          '成功抽帧：'+(s.extracted_frames??0)+'；中位清晰度：'+(q.sharpness_median??'?'),
+          '可匹配帧对：'+(q.feature_match_pairs??0)+'/'+(q.pairs_checked??0)+'；变化帧对：'+(q.changed_view_pairs??0),
+          '初检结论：'+(report.reconstruction_ready?'可进入后续重建尝试':'暂不建议进入重建'),
+          ...(report.warnings||[])
+        ];
+        $('videoReport').textContent=summary.join('\n');
+        $('videoReport').dataset.kind=report.reconstruction_ready?'good':'bad';
+        (report.previews||[]).forEach((item,i)=>{
+          const wrap=document.createElement('div');wrap.style.cssText='width:140px;display:grid;gap:4px';
+          const img=document.createElement('img');img.src=item.image;img.alt='视频抽帧 '+(i+1);img.style.cssText='width:140px;max-height:160px;object-fit:contain;border:1px solid var(--line);border-radius:8px';
+          const caption=document.createElement('small');caption.textContent='帧 '+item.frame_index+' · 清晰度 '+item.sharpness;
+          wrap.append(img,caption);$('framePreviews').append(wrap);
+        });
+        if (report.reconstruction_ready) {
+          const note=document.createElement('p');note.className='hint';note.textContent='输入初检通过不代表重建一定成功。真正的多视角 SfM/MVS 重建尚未接入此上传流程。';$('videoReport').append(note);
+        }
+      } catch(error) { $('videoReport').textContent='视频分析失败：'+error.message; $('videoReport').dataset.kind='bad'; }
+      finally { button.disabled=false; }
+    }
+
     async function detectFrame() {
       detectBtn.disabled = true; reconstructBtn.disabled = true;
       try {
@@ -225,6 +269,7 @@
       const blob=new Blob([JSON.stringify({format:'PhotoCatchMesh',version:1,...modelData},null,2)],{type:'application/json'});
       const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='photocatch-model.json';a.click();URL.revokeObjectURL(url);
     }
+    $('analyzeVideo').addEventListener('click',analyzeVideoFile);
     startBtn.addEventListener('click',startCamera);stopBtn.addEventListener('click',stopCamera);
     detectBtn.addEventListener('click',detectFrame);reconstructBtn.addEventListener('click',reconstruct);exportBtn.addEventListener('click',exportModel);
     window.addEventListener('beforeunload',stopCamera);
