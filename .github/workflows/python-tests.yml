@@ -16,7 +16,23 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - name: Install dependencies
         run: python -m pip install --upgrade pip && pip install -r requirements.txt
-      - name: Run tests
+      - name: Run Python tests
         run: python -m pytest -q
+      - name: Check frontend module syntax
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          html = Path("frontend/index.html").read_text(encoding="utf-8")
+          match = re.search(r'<script type="module">\s*(.*?)\s*</script>', html, re.S)
+          if not match:
+              raise SystemExit("Could not find frontend module script")
+          Path("/tmp/photocatch-frontend.mjs").write_text(match.group(1), encoding="utf-8")
+          PY
+          node --check /tmp/photocatch-frontend.mjs
