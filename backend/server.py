@@ -1,14 +1,18 @@
 import logging
 import os
 
-import cv2
-import numpy as np
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
-from backend.detector import ObjectDetector
-from backend.reconstructor import Reconstructor3D
-from backend.utils import encode_image, decode_image
+try:
+    from backend.detector import ObjectDetector
+    from backend.reconstructor import Reconstructor3D
+    from backend.utils import encode_image, decode_image
+except ModuleNotFoundError:
+    # Also support the documented "python backend/server.py" launch command.
+    from detector import ObjectDetector
+    from reconstructor import Reconstructor3D
+    from utils import encode_image, decode_image
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
@@ -23,9 +27,7 @@ reconstructor = Reconstructor3D()
 
 def _json_object():
     data = request.get_json(silent=True)
-    if not isinstance(data, dict):
-        return None
-    return data
+    return data if isinstance(data, dict) else None
 
 
 @app.route('/api/health', methods=['GET'])
@@ -47,10 +49,8 @@ def detect():
         annotated_img = detector.draw_detections(img_array.copy(), detections)
         encoded_img = encode_image(annotated_img)
         return jsonify({
-            'success': True,
-            'image': encoded_img,
-            'detections': detections,
-            'count': len(detections)
+            'success': True, 'image': encoded_img,
+            'detections': detections, 'count': len(detections)
         })
     except ValueError as exc:
         return jsonify({'error': str(exc)}), 400
@@ -64,8 +64,7 @@ def reconstruct():
     data = _json_object()
     if data is None:
         return jsonify({'error': 'Request body must be a JSON object'}), 400
-    image_data = data.get('image')
-    bbox = data.get('bbox')
+    image_data, bbox = data.get('image'), data.get('bbox')
     if not isinstance(image_data, str) or not image_data.strip():
         return jsonify({'error': 'A base64 image is required'}), 400
     if (not isinstance(bbox, list) or len(bbox) != 4
@@ -84,10 +83,8 @@ def reconstruct():
             return jsonify({'error': 'bbox selects an empty image region'}), 400
         model_data = reconstructor.reconstruct(roi)
         return jsonify({
-            'success': True,
-            'model': model_data,
-            'vertices': model_data['vertices'],
-            'faces': model_data['faces'],
+            'success': True, 'model': model_data,
+            'vertices': model_data['vertices'], 'faces': model_data['faces'],
             'colors': model_data['colors']
         })
     except ValueError as exc:
@@ -108,19 +105,16 @@ def list_models():
 @app.route('/api/settings', methods=['GET', 'POST'])
 def settings():
     if request.method == 'POST':
-        data = _json_object()
-        if data is None:
+        if _json_object() is None:
             return jsonify({'error': 'Request body must be a JSON object'}), 400
         return jsonify({'success': True, 'message': 'Settings accepted (not persisted)'})
     return jsonify({
-        'detection_threshold': 0.5,
-        'mesh_quality': 'high',
-        'ar_mode': 'webgl',
-        'max_objects': 10
+        'detection_threshold': 0.5, 'mesh_quality': 'high',
+        'ar_mode': 'webgl', 'max_objects': 10
     })
 
 
 if __name__ == '__main__':
-    print("\\nPhotoCatch AR server: http://127.0.0.1:5000")
+    print("\nPhotoCatch AR server: http://127.0.0.1:5000")
     app.run(debug=False, host=os.getenv("HOST", "127.0.0.1"),
             port=int(os.getenv("PORT", "5000")), threaded=True)
