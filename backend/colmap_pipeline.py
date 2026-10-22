@@ -158,19 +158,50 @@ def run_colmap_mvs(images_dir: str | Path, output_dir: str | Path, *, executable
     dense.mkdir(exist_ok=True)
     _run([binary, "image_undistorter", "--image_path", str(images), "--input_path", str(models[0]),
           "--output_path", str(dense), "--output_type", "COLMAP"], "图像去畸变", timeout=1800)
-    _run([binary, "patch_match_stereo", "--workspace_path", str(dense), "--workspace_format", "COLMAP",
-          "--PatchMatchStereo.geom_consistency", "true"], "MVS 深度估计", timeout=7200)
     fused = dense / "fused.ply"
-    _run([binary, "stereo_fusion", "--workspace_path", str(dense), "--workspace_format", "COLMAP",
-          "--input_type", "geometric", "--output_path", str(fused)], "多视图深度融合", timeout=3600)
-    if not fused.exists() or fused.stat().st_size < 128:
-        raise ReconstructionError("COLMAP 未生成有效的融合点云；请检查素材纹理、视差和遮挡")
     mesh = dense / "mesh.ply"
-    _run([binary, "poisson_mesher", "--input_path", str(fused), "--output_path", str(mesh)], "表面网格生成", timeout=3600)
+    method = "COLMAP SfM + MVS + Poisson meshing"
+    try:
+        _run([binary, "patch_match_stereo", "--workspace_path", str(dense), "--workspace_format", "COLMAP",
+              "--PatchMatchStereo.geom_consistency", "true"], "MVS 深度估计", timeout=7200)
+        _run([binary, "stereo_fusion", "--workspace_path", str(dense), "--workspace_format", "COLMAP",
+              "--input_type", "geometric", "--output_path", str(fused)], "多视图深度融合", timeout=3600)
+        if not fused.exists() or fused.stat().st_size < 128:
+            raise ReconstructionError("COLMAP 未生成有效的融合点云；请检查素材纹理、视差和遮挡")
+        _run([binary, "poisson_mesher", "--input_path", str(fused), "--output_path", str(mesh)], "表面网格生成", timeout=3600)
+    except ReconstructionError as colmap_error:
+        details = str(colmap_error).lower()
+        cuda_missing = "requires cuda" in details or "cuda, which is not available" in details
+        if not cuda_missing:
+            raise
+        interface = shutil.which("InterfaceCOLMAP")
+        densify = shutil.which("DensifyPointCloud")
+        reconstruct = shutil.which("ReconstructMesh")
+        if not (interface and densify and reconstruct):
+            raise ReconstructionError(
+                "COLMAP 的稠密重建需要 CUDA，但当前系统没有可用 CUDA。"
+                "稀疏重建已保留；如需在 Mac 上继续，请安装带 macOS arm64 支持的 OpenMVS "
+                "(InterfaceCOLMAP、DensifyPointCloud、ReconstructMesh)，然后重新运行。"
+                "也可在支持 NVIDIA CUDA 的 Linux 机器上运行。原始错误：" + str(colmap_error)
+            ) from colmap_error
+        scene = dense / "scene.mvs"
+        _run([interface, "-i", str(dense), "-o", str(scene), "--image-folder", str(dense / "images")],
+             "OpenMVS 导入 COLMAP 稀疏模型", timeout=1800)
+        # OpenMVS SGM mode is explicitly CPU-based, so it can run on Apple Silicon
+        # without pretending COLMAP's CUDA PatchMatch is available.
+        _run([densify, str(scene), "--fusion-mode", "-2"], "OpenMVS CPU 稠密重建", timeout=14400)
+        dense_scene = dense / "scene_dense.mvs"
+        _run([reconstruct, str(dense_scene)], "OpenMVS 表面网格生成", timeout=7200)
+        openmvs_mesh = dense / "scene_dense_mesh.ply"
+        if not openmvs_mesh.is_file() or openmvs_mesh.stat().st_size < 128:
+            raise ReconstructionError("OpenMVS 未生成预期的 scene_dense_mesh.ply；请查看 OpenMVS 的 LOG 文件")
+        mesh = openmvs_mesh
+        fused = dense / "scene_dense.ply"
+        method = "COLMAP SfM + OpenMVS CPU SGM + mesh reconstruction"
     quality = inspect_mesh(mesh)
     return {
         "success": True,
-        "method": "COLMAP SfM + MVS + Poisson meshing",
+        "method": method,
         "registered_images": registered_images,
         "input_images": len(image_files),
         "registered_model": str(models[0]),
