@@ -133,7 +133,13 @@ def reconstruct_uploaded_video():
                 scale = min(1.0, 1200 / max(h, w))
                 if scale < 1:
                     frame = cv2.resize(frame, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
-                if cv2.imwrite(str(images_dir / f'frame_{saved:04d}.jpg'), frame, [cv2.IMWRITE_JPEG_QUALITY, 95]):
+                if mode == 'panorama360':
+                    views = equirectangular_to_perspective_views(frame, output_size=640, horizontal_fov_degrees=100)
+                    for direction, view in views:
+                        target = images_dir / f'view_{saved:05d}_{direction}.jpg'
+                        if cv2.imwrite(str(target), view, [cv2.IMWRITE_JPEG_QUALITY, 94]):
+                            saved += 1
+                elif cv2.imwrite(str(images_dir / f'frame_{saved:04d}.jpg'), frame, [cv2.IMWRITE_JPEG_QUALITY, 95]):
                     saved += 1
         finally:
             cap.release()
