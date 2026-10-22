@@ -24,6 +24,17 @@ def test_projects_panorama_to_six_same_sized_perspective_views():
     assert len({view.tobytes() for _, view in views}) > 1
 
 
+def test_up_and_down_views_use_correct_poles():
+    frame = np.zeros((128, 256, 3), dtype=np.uint8)
+    frame[:64, :] = (0, 0, 255)      # north/top of equirectangular image
+    frame[64:, :] = (0, 255, 0)      # south/bottom
+    views = dict(equirectangular_to_perspective_views(frame, output_size=96))
+    up_center = views["up"][48, 48]
+    down_center = views["down"][48, 48]
+    assert up_center[2] > up_center[1]
+    assert down_center[1] > down_center[2]
+
+
 def test_rejects_non_panorama_and_invalid_options():
     frame = np.zeros((100, 100, 3), dtype=np.uint8)
     with pytest.raises(ValueError, match="2:1"):
