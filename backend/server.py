@@ -1,5 +1,6 @@
 import logging
 import os
+import shutil
 import tempfile
 import uuid
 from pathlib import Path
@@ -133,6 +134,13 @@ def reconstruct_uploaded_video():
     except Exception:
         logger.exception("Video reconstruction failed")
         return jsonify({'error': '多视角重建失败；请检查后端日志和素材'}), 500
+    finally:
+        # Do not retain the uploaded original or raw sampled frames after the job.
+        try:
+            upload_path.unlink(missing_ok=True)
+            shutil.rmtree(images_dir, ignore_errors=True)
+        except OSError:
+            logger.warning("Could not remove temporary video inputs for job %s", job_id)
 
 
 @app.route('/api/video/models/<job_id>/<asset_name>', methods=['GET'])
