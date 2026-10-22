@@ -123,7 +123,7 @@ def reconstruct_uploaded_video():
             'job_id': job_id,
             'mesh_url': f'/api/video/models/{job_id}/mesh.ply',
             'point_cloud_url': f'/api/video/models/{job_id}/pointcloud.ply',
-            'registered_images': saved,
+            'input_images': saved,
             'input_analysis': report,
             'success': True,
         })
