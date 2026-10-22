@@ -64,8 +64,8 @@ python -m pytest -q
 ## API
 
 - `GET /api/health`
-- `POST /api/video/analyze`：multipart/form-data，字段名 `video`；提取最多 24 帧并返回清晰度、亮度、几何一致性、视差启发式指标及预览帧。初检不是重建结果，也不能单独证明相机运动或 SfM 可解。
-- `POST /api/video/reconstruct`：multipart/form-data，字段名 `video`；先执行保守初检，再调用本机 COLMAP SfM/MVS，成功时返回网格 URL。未通过输入门槛、未安装 COLMAP 或重建失败时会返回明确错误，不会伪造成功。
+- `POST /api/video/analyze`：multipart/form-data，字段名 `video`，可选 `mode=ordinary|panorama360`；提取最多 24 帧并返回清晰度、亮度、几何一致性、视差启发式指标及预览帧。初检不是重建结果，也不能单独证明相机运动或 SfM 可解。
+- `POST /api/video/reconstruct`：multipart/form-data，字段名 `video`，可选 `mode=ordinary|panorama360`；先执行输入初检，再调用本机 COLMAP SfM/MVS，成功时返回网格 URL。未通过输入门槛、未安装 COLMAP 或重建失败时会返回明确错误，不会伪造成功。
 - `GET /api/video/models/{job_id}/mesh.ply` 与 `pointcloud.ply`：读取已生成的 PLY 资产。
 - `POST /api/detect`：JSON body `{"image":"data:image/jpeg;base64,..."}`
 - `POST /api/reconstruct`：JSON body 包含图像和整数边界框 `{"image":"...","bbox":[x,y,width,height]}`
@@ -83,6 +83,8 @@ python -m pytest -q
 - 真实浏览器端到端流程（摄像头 → 检测 → 重建 → WebGL 预览）。
 - 多类物体检测的准确率、跨视频稳定性和性能基准。
 - 更稳健的噪声/自交轮廓处理。
-- 真实视频/真实物体的重建质量验收仍依赖实际运行 COLMAP 的素材、计算环境和人工检查；输入初检指标只是启发式，不保证模型完整或可辨认。
+- 真实视频/真实物体的重建质量验收仍依赖实际运行 COLMAP/OpenMVS 的素材、计算环境和人工检查；输入初检指标只是启发式，不保证模型完整或可辨认。
+- 360°全景路径已过滤同一源帧的虚拟视图匹配，但尚未向 COLMAP 注入已知的虚拟相机相对旋转/rig frame 约束；不能把它视为已完成的严谨全景摄影测量。
+- OpenMVS CPU SGM 路径增加了 `scene.mvs`、`scene_dense.mvs`、`scene_dense.ply` 和网格输出检查，并将产物规范化为 API 使用的 `mesh.ply` / `fused.ply`；Mac 上是否可用仍取决于实际安装的 OpenMVS 构建和真实素材。
 - 输出目前为 PLY 网格/点云；当前 COLMAP Poisson 流程不生成真实 UV 纹理贴图，UI 会明确显示这一点。网格检查可以报告水密性、连通组件和退化面，但不能自动判断目标身份或视觉逼真程度；真实素材、浏览器 E2E、孔洞/碎片人工验收和尺度恢复仍需后续完成。
 - GLB/GLTF 导出、设置持久化和设备兼容性测试。
