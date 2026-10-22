@@ -20,7 +20,7 @@ PhotoCatch 是一个本地运行的实验性原型：通过摄像头抓取单帧
 
 - Python 3.11（CI 使用版本；建议本地也使用 3.11）
 - 可访问摄像头的现代浏览器
-- 本地 Python 依赖安装需要网络；真正多视角重建还需要单独安装 COLMAP 命令行程序，并确保 `colmap` 位于 PATH；网格质量检查使用 `trimesh`（已列入 requirements.txt）
+- 本地 Python 依赖安装需要网络；真正多视角重建需要 COLMAP 命令行程序，并确保 `colmap` 位于 PATH。COLMAP 的稠密 PatchMatch 立体重建要求 CUDA；在没有 CUDA 的 Mac 上，若安装了 OpenMVS 的 `InterfaceCOLMAP`、`DensifyPointCloud`、`ReconstructMesh` 并位于 PATH，PhotoCatch 会尝试切换到 OpenMVS CPU SGM 稠密重建。CPU 重建可能明显更慢，且仍需真实视频验收；网格质量检查使用 `trimesh`（已列入 requirements.txt）
 - 浏览器需支持 WebGL；摄像头一般要求 localhost 或 HTTPS
 - 前端当前从 jsDelivr 加载 Three.js，因此首次使用预览需要浏览器网络访问该 CDN
 
@@ -50,7 +50,7 @@ python -m http.server 8000
 http://127.0.0.1:8000/frontend/index.html
 ```
 
-导入视频后点击“提取多帧并评估”。初检通过时可点击“运行 COLMAP 多视角重建”；该过程要求已安装 COLMAP，可能消耗较多 CPU、内存和磁盘空间。摄像头单帧检测仍可用于原型试验，但它不是多视角重建。后端地址默认是 `http://127.0.0.1:5000`。如需指定其他 API 地址，可在 URL 中加入 `?api=http://127.0.0.1:5001`（仅限可信的本地服务）。
+导入视频后点击“提取多帧并评估”。初检通过时可点击“运行 COLMAP 多视角重建”；该过程要求已安装 COLMAP，可能消耗较多 CPU、内存和磁盘空间。COLMAP 的稠密 PatchMatch 若因缺少 CUDA 失败，会在检测到 OpenMVS 命令行工具时尝试 CPU SGM 备选流程；否则会明确报错并保留已完成的稀疏重建，不会伪造完整网格。摄像头单帧检测仍可用于原型试验，但它不是多视角重建。后端地址默认是 `http://127.0.0.1:5000`。如需指定其他 API 地址，可在 URL 中加入 `?api=http://127.0.0.1:5001`（仅限可信的本地服务）。
 
 ## 自动化测试
 
