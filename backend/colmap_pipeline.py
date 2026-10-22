@@ -33,6 +33,11 @@ def _run(command: list[str], stage: str, timeout: int = 1800, cwd: str | Path | 
     return result.stdout
 
 
+def _openmvs_densify_command(executable: str, scene: str | Path) -> list[str]:
+    """Use OpenMVS depth-map computation and fusion, not disparity-only fusion."""
+    return [executable, str(scene), "--fusion-mode", "0"]
+
+
 def inspect_mesh(mesh_path: str | Path) -> dict[str, Any]:
     """Inspect a PLY mesh without silently repairing it."""
     path = Path(mesh_path)
@@ -251,7 +256,7 @@ def run_colmap_mvs(images_dir: str | Path, output_dir: str | Path, *, executable
         # OpenMVS 2.4 help defines mode 0 as depth-map computation + fusion.
         # Mode -2 fuses disparity maps; on the verified 33-image Mac sample it
         # produced 23 maps but zero depths/points, so do not use it as the default.
-        _run([densify, str(scene), "--fusion-mode", "0"], "OpenMVS 深度图稠密重建", timeout=14400, cwd=dense)
+        _run(_openmvs_densify_command(densify, scene), "OpenMVS 深度图稠密重建", timeout=14400, cwd=dense)
         dense_scene = dense / "scene_dense.mvs"
         fused = dense / "scene_dense.ply"
         if not dense_scene.is_file() or dense_scene.stat().st_size < 128:
