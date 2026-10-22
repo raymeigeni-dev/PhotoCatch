@@ -37,6 +37,7 @@
           <label for="videoFile">导入视频（MP4 / MOV 等）</label>
           <input id="videoFile" type="file" accept="video/mp4,video/quicktime,video/x-m4v,video/x-msvideo,video/x-matroska,video/webm,.mp4,.mov,.m4v,.avi,.mkv,.webm">
           <button class="primary" id="analyzeVideo">提取多帧并评估</button>
+          <button id="runColmap" disabled>运行 COLMAP 多视角重建</button>
         </div>
         <div id="videoReport" class="message" role="status" aria-live="polite">可先导入视频，检查清晰度、可匹配特征和视角变化。此步骤只评估输入，不会声称已经重建 3D。</div>
         <div id="framePreviews" class="actions" aria-label="抽取的视频帧预览"></div>
@@ -63,6 +64,7 @@
   <footer>摄像头帧发送到配置的本地 PhotoCatch 后端（默认 http://127.0.0.1:5000）。请通过 localhost 或 HTTPS 打开本页面以获得摄像头权限。</footer>
   <script type="module">
     import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+    import { PLYLoader } from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/PLYLoader.js';
 
     const API_BASE = new URLSearchParams(location.search).get('api') || 'http://127.0.0.1:5000';
     const $ = (id) => document.getElementById(id);
@@ -138,6 +140,7 @@
         const report = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(report.error || ('HTTP ' + response.status));
         const v=report.video||{}, q=report.quality||{}, s=report.sampling||{};
+        $('runColmap').disabled = !report.reconstruction_ready;
         const summary = [
           report.message || '分析完成',
           '视频：'+(v.width||'?')+'×'+(v.height||'?')+'，'+(v.duration_seconds??'?')+' 秒，'+(v.fps??'?')+' FPS',
@@ -155,10 +158,62 @@
           wrap.append(img,caption);$('framePreviews').append(wrap);
         });
         if (report.reconstruction_ready) {
-          const note=document.createElement('p');note.className='hint';note.textContent='输入初检通过不代表重建一定成功。真正的多视角 SfM/MVS 重建尚未接入此上传流程。';$('videoReport').append(note);
+          const note=document.createElement('p');note.className='hint';note.textContent='输入初检通过不代表重建一定成功。可尝试 COLMAP；最终仍以稀疏重建、深度融合和网格输出为准。';$('videoReport').append(note);
         }
-      } catch(error) { $('videoReport').textContent='视频分析失败：'+error.message; $('videoReport').dataset.kind='bad'; }
+      } catch(error) { $('runColmap').disabled=true; $('videoReport').textContent='视频分析失败：'+error.message; $('videoReport').dataset.kind='bad'; }
       finally { button.disabled=false; }
+    }
+
+    async function runColmapReconstruction() {
+      const file=$('videoFile').files && $('videoFile').files[0];
+      if(!file){$('videoReport').textContent='请先选择视频文件。';return;}
+      const button=$('runColmap');button.disabled=true;
+      $('videoReport').textContent='正在运行 COLMAP SfM/MVS。该过程可能需要数分钟到更久；请勿关闭后端。';
+      try {
+        const form=new FormData();form.append('video',file,file.name);
+        let response;
+        try { response=await fetch(API_BASE+'/api/video/reconstruct',{method:'POST',body:form}); }
+        catch(error){throw new Error('无法连接后端：'+API_BASE);}
+        const result=await response.json().catch(()=>({}));
+        if(!response.ok) {
+          const detail=result.analysis && result.analysis.warnings ? '\\n'+result.analysis.warnings.join('\\n') : '';
+          throw new Error((result.error||('HTTP '+response.status))+detail);
+        }
+        const meshResponse=await fetch(API_BASE+result.mesh_url);
+        if(!meshResponse.ok) throw new Error('COLMAP 已返回，但无法下载网格文件。');
+        const buffer=await meshResponse.arrayBuffer();
+        const geometry=new PLYLoader().parse(buffer);
+        if(!geometry.getAttribute('position')||geometry.getAttribute('position').count<3) throw new Error('COLMAP 网格没有足够顶点。');
+        geometry.computeVertexNormals();
+        const pos=geometry.getAttribute('position');
+        const seen=new Set();
+        for(let i=0;i<pos.count;i++) {
+          const key=[pos.getX(i).toFixed(4),pos.getY(i).toFixed(4),pos.getZ(i).toFixed(4)].join(',');
+          seen.add(key);
+        }
+        const meshData={vertices:pos.count,faces:geometry.index?geometry.index.count/3:pos.count/3,colors:geometry.getAttribute('color')?pos.count:0};
+        initViewer();
+        if(mesh){scene.remove(mesh);mesh.geometry.dispose();mesh.material.dispose();}
+        const material=new THREE.MeshStandardMaterial({color:0xffffff,vertexColors:!!geometry.getAttribute('color'),roughness:0.85,side:THREE.DoubleSide});
+        mesh=new THREE.Mesh(geometry,material);scene.add(mesh);
+        const bounds=new THREE.Box3().setFromObject(mesh),size=bounds.getSize(new THREE.Vector3()),maxDim=Math.max(size.x,size.y,size.z);
+        if(!Number.isFinite(maxDim)||maxDim<=0) throw new Error('网格尺寸无效。');
+        mesh.position.sub(bounds.getCenter(new THREE.Vector3()));
+        cameraDistance=Math.max(1.5,maxDim*2.2);camera.position.set(0,0,cameraDistance);camera.lookAt(0,0,0);
+        $('viewerPlaceholder').style.display='none';
+        $('metrics').replaceChildren();
+        [['网格顶点',meshData.vertices],['三角面',Math.round(meshData.faces)],['顶点颜色',meshData.colors],['文件字节',buffer.byteLength]].forEach(([label,value])=>{
+          const span=document.createElement('span');span.className='metric';span.textContent=label+' ';const strong=document.createElement('strong');strong.textContent=String(value);span.append(strong);$('metrics').append(span);
+        });
+        modelData={format:'PhotoCatchCOLMAPMesh',version:1,job_id:result.job_id,mesh_url:result.mesh_url,point_cloud_url:result.point_cloud_url,method:result.method,mesh_bytes:buffer.byteLength,vertices:meshData.vertices,faces:Math.round(meshData.faces)};
+        exportBtn.disabled=true;
+        $('videoReport').textContent='COLMAP 已生成多视角网格文件。请人工检查是否为目标本体、表面是否连续、是否存在漂浮碎片/孔洞。当前网格生成不等于纹理质量和完整度验收通过。\\n'+result.note;
+        $('videoReport').dataset.kind='good';
+        message('COLMAP 多视角重建已返回网格。仍需检查模型是否真实且完整。','good');
+      } catch(error) {
+        $('videoReport').textContent='多视角重建失败：'+error.message+'\\n不会回退到轮廓挤出并冒充成功。';
+        $('videoReport').dataset.kind='bad';
+      } finally { button.disabled=false; }
     }
 
     async function detectFrame() {
@@ -270,6 +325,7 @@
       const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='photocatch-model.json';a.click();URL.revokeObjectURL(url);
     }
     $('analyzeVideo').addEventListener('click',analyzeVideoFile);
+    $('runColmap').addEventListener('click',runColmapReconstruction);
     startBtn.addEventListener('click',startCamera);stopBtn.addEventListener('click',stopCamera);
     detectBtn.addEventListener('click',detectFrame);reconstructBtn.addEventListener('click',reconstruct);exportBtn.addEventListener('click',exportModel);
     window.addEventListener('beforeunload',stopCamera);
