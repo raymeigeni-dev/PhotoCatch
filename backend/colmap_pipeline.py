@@ -14,6 +14,8 @@ from typing import Any
 import numpy as np
 import trimesh
 
+from backend.panorama_rig import write_rig_config
+
 
 class ReconstructionError(RuntimeError):
     pass
@@ -165,14 +167,33 @@ def run_colmap_mvs(images_dir: str | Path, output_dir: str | Path, *, executable
     sparse = out / "sparse"
     dense = out / "dense"
     sparse.mkdir(exist_ok=True)
-    _run([binary, "feature_extractor", "--database_path", str(database), "--image_path", str(images),
-          "--ImageReader.single_camera", "1"], "特征提取")
+    panorama_sensor_names = ("front", "right", "back", "left", "up", "down")
+    is_panorama_rig = all(
+        (images / sensor).is_dir()
+        and any(p.suffix.lower() in valid_extensions for p in (images / sensor).iterdir() if p.is_file())
+        for sensor in panorama_sensor_names
+    )
+    feature_command = [binary, "feature_extractor", "--database_path", str(database),
+                       "--image_path", str(images)]
+    if is_panorama_rig:
+        feature_command += ["--ImageReader.single_camera_per_folder", "1"]
+    else:
+        feature_command += ["--ImageReader.single_camera", "1"]
+    _run(feature_command, "特征提取")
+    if is_panorama_rig:
+        rig_config_path = write_rig_config(out / "rig_config.json")
+        _run([binary, "rig_configurator", "--database_path", str(database),
+              "--rig_config_path", str(rig_config_path)], "配置全景虚拟相机 Rig/Frame")
     _run([binary, "exhaustive_matcher", "--database_path", str(database)], "多视图特征匹配")
-    # In 360 mode, virtual crops from the same source frame share one optical
-    # center. Remove their pairwise matches before mapper can triangulate them.
-    _remove_same_capture_panorama_pairs(database)
-    _run([binary, "mapper", "--database_path", str(database), "--image_path", str(images),
-          "--output_path", str(sparse)], "SfM 稀疏重建", timeout=3600)
+    # Rig metadata makes all six views share one estimated pose per source frame.
+    # Same-frame correspondences are not depth baselines and are removed explicitly.
+    if is_panorama_rig:
+        _remove_same_capture_panorama_pairs(database)
+    mapper_command = [binary, "mapper", "--database_path", str(database),
+                      "--image_path", str(images), "--output_path", str(sparse)]
+    if is_panorama_rig:
+        mapper_command += ["--Mapper.ba_refine_sensor_from_rig", "0"]
+    _run(mapper_command, "SfM 稀疏重建", timeout=3600)
     models = sorted((p for p in sparse.iterdir() if p.is_dir() and (p / "images.bin").exists()),
                     key=lambda p: int(p.name) if p.name.isdigit() else 10**9)
     if not models:
