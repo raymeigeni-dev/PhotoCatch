@@ -30,12 +30,19 @@ def _run(command: list[str], stage: str, timeout: int = 1800, cwd: str | Path | 
     if result.returncode != 0:
         details = (result.stderr or result.stdout or "").strip()[-2500:]
         raise ReconstructionError(f"{stage} 失败（退出码 {result.returncode}）。{details}")
-    return result.stdout
+    # Keep both streams: OpenMVS can exit successfully while producing zero points,
+    # and its useful diagnosis is often printed to stderr rather than stdout.
+    return "\\n".join(part for part in (result.stdout, result.stderr) if part).strip()
 
 
-def _openmvs_densify_command(executable: str, scene: str | Path) -> list[str]:
-    """Use OpenMVS depth-map computation and fusion, not disparity-only fusion."""
-    return [executable, str(scene), "--fusion-mode", "0"]
+def _openmvs_densify_command(
+    executable: str, scene: str | Path, *, resolution_level: int | None = None
+) -> list[str]:
+    """Use depth-map fusion; optionally retry at full image resolution."""
+    command = [executable, str(scene), "--fusion-mode", "0"]
+    if resolution_level is not None:
+        command += ["--resolution-level", str(resolution_level)]
+    return command
 
 
 def inspect_mesh(mesh_path: str | Path) -> dict[str, Any]:
@@ -253,16 +260,46 @@ def run_colmap_mvs(images_dir: str | Path, output_dir: str | Path, *, executable
              "OpenMVS 导入 COLMAP 稀疏模型", timeout=1800)
         if not scene.is_file() or scene.stat().st_size < 128:
             raise ReconstructionError("OpenMVS InterfaceCOLMAP 未生成有效的 scene.mvs；请检查输入目录和 OpenMVS 日志")
-        # OpenMVS 2.4 help defines mode 0 as depth-map computation + fusion.
-        # Mode -2 fuses disparity maps; on the verified 33-image Mac sample it
-        # produced 23 maps but zero depths/points, so do not use it as the default.
-        _run(_openmvs_densify_command(densify, scene), "OpenMVS 深度图稠密重建", timeout=14400, cwd=dense)
+        # OpenMVS 2.4 mode 0 computes/fuses depth maps. Mode -2 only fuses
+        # disparity maps and produced zero points on the earlier 33-image sample.
         dense_scene = dense / "scene_dense.mvs"
         fused = dense / "scene_dense.ply"
+        openmvs_mesh = dense / "scene_dense_mesh.ply"
+        # Remove stale outputs so a previous partial run cannot be mistaken for
+        # the result of this attempt.
+        for artifact in (dense_scene, fused, openmvs_mesh):
+            artifact.unlink(missing_ok=True)
+        attempts = [
+            ("default", _openmvs_densify_command(densify, scene)),
+            # Full-resolution depth maps can recover detail lost by OpenMVS's
+            # default half-resolution level. This is intentionally a single
+            # bounded retry because it can use substantially more RAM/time.
+            ("full_resolution", _openmvs_densify_command(densify, scene, resolution_level=0)),
+        ]
+        densify_diagnostics: list[str] = []
+        for label, command in attempts:
+            # Ensure each attempt starts without a prior PLY that could be stale.
+            fused.unlink(missing_ok=True)
+            try:
+                output = _run(command, f"OpenMVS 深度图稠密重建（{label}）", timeout=14400, cwd=dense)
+            except ReconstructionError as exc:
+                output = str(exc)
+                densify_diagnostics.append(f"[{label}] {output}")
+                (dense / f"openmvs_densify_{label}.log").write_text(output, errors="replace")
+                continue
+            densify_diagnostics.append(f"[{label}] {output}")
+            (dense / f"openmvs_densify_{label}.log").write_text(output, errors="replace")
+            if fused.is_file() and fused.stat().st_size >= 128:
+                break
         if not dense_scene.is_file() or dense_scene.stat().st_size < 128:
-            raise ReconstructionError("OpenMVS 稠密重建未生成 scene_dense.mvs；请检查 OpenMVS 日志和输入图像")
+            tail = "\\n".join(densify_diagnostics)[-1800:]
+            raise ReconstructionError("OpenMVS 稠密重建未生成有效 scene_dense.mvs。诊断日志已保存到 dense/openmvs_densify_*.log。\\n" + tail)
         if not fused.is_file() or fused.stat().st_size < 128:
-            raise ReconstructionError("OpenMVS 稠密重建未生成有效 scene_dense.ply 点云；不能继续宣称稠密重建成功")
+            tail = "\\n".join(densify_diagnostics)[-3000:]
+            raise ReconstructionError(
+                "OpenMVS 在默认分辨率和全分辨率重试后仍未生成有效 scene_dense.ply 点云；"
+                "不会伪造成功。诊断日志已保存到 dense/openmvs_densify_*.log。\\n" + tail
+            )
         _run([reconstruct, str(dense_scene), "-p", str(fused)], "OpenMVS 表面网格生成", timeout=7200, cwd=dense)
         openmvs_mesh = dense / "scene_dense_mesh.ply"
         if not openmvs_mesh.is_file() or openmvs_mesh.stat().st_size < 128:
