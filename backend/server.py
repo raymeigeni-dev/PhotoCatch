@@ -1,9 +1,12 @@
 import logging
 import os
 import tempfile
+import uuid
 from pathlib import Path
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
+import cv2
+import numpy as np
 from flask_cors import CORS
 
 try:
@@ -11,12 +14,14 @@ try:
     from backend.reconstructor import Reconstructor3D
     from backend.utils import encode_image, decode_image
     from backend.video_input import analyze_video
+    from backend.colmap_pipeline import run_colmap_mvs, ReconstructionError
 except ModuleNotFoundError:
     # Also support the documented "python backend/server.py" launch command.
     from detector import ObjectDetector
     from reconstructor import Reconstructor3D
     from utils import encode_image, decode_image
     from video_input import analyze_video
+    from colmap_pipeline import run_colmap_mvs, ReconstructionError
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
@@ -68,6 +73,77 @@ def analyze_uploaded_video():
                 os.unlink(tmp_path)
             except OSError:
                 logger.warning("Could not remove temporary upload %s", tmp_path)
+
+
+@app.route('/api/video/reconstruct', methods=['POST'])
+def reconstruct_uploaded_video():
+    """Run actual COLMAP SfM/MVS on a video after conservative input preflight."""
+    upload = request.files.get('video')
+    if upload is None or not upload.filename:
+        return jsonify({'error': '请先选择一个视频文件'}), 400
+    suffix = Path(upload.filename).suffix.lower()
+    if suffix not in {'.mp4', '.mov', '.m4v', '.avi', '.mkv', '.webm'}:
+        return jsonify({'error': '不支持该视频格式'}), 400
+    job_id = uuid.uuid4().hex
+    root = Path(app.instance_path) / 'reconstructions' / job_id
+    images_dir = root / 'images'
+    upload_path = root / ('upload' + suffix)
+    try:
+        images_dir.mkdir(parents=True, exist_ok=False)
+        upload.save(upload_path)
+        report = analyze_video(str(upload_path), max_frames=36, max_dimension=1200)
+        if not report.get('reconstruction_ready'):
+            return jsonify({'error': '视频未通过保守的输入质量门槛，未启动重建。', 'analysis': report}), 422
+
+        cap = cv2.VideoCapture(str(upload_path))
+        if not cap.isOpened():
+            return jsonify({'error': '无法重新打开视频进行抽帧'}), 422
+        try:
+            count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+            positions = np.unique(np.linspace(0, max(0, count - 1), num=min(36, count), dtype=int))
+            saved = 0
+            for idx, pos in enumerate(positions):
+                cap.set(cv2.CAP_PROP_POS_FRAMES, int(pos))
+                ok, frame = cap.read()
+                if not ok or frame is None:
+                    continue
+                h, w = frame.shape[:2]
+                scale = min(1.0, 1200 / max(h, w))
+                if scale < 1:
+                    frame = cv2.resize(frame, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+                if cv2.imwrite(str(images_dir / f'frame_{saved:04d}.jpg'), frame, [cv2.IMWRITE_JPEG_QUALITY, 95]):
+                    saved += 1
+        finally:
+            cap.release()
+        if saved < 8:
+            return jsonify({'error': f'有效抽帧仅 {saved} 张，至少需要 8 张；未启动重建。', 'analysis': report}), 422
+        result = run_colmap_mvs(images_dir, root / 'colmap')
+        result.update({
+            'job_id': job_id,
+            'mesh_url': f'/api/video/models/{job_id}/mesh.ply',
+            'point_cloud_url': f'/api/video/models/{job_id}/pointcloud.ply',
+            'registered_images': saved,
+            'input_analysis': report,
+            'success': True,
+        })
+        return jsonify(result)
+    except ReconstructionError as exc:
+        logger.warning("COLMAP reconstruction rejected/failed: %s", exc)
+        return jsonify({'error': str(exc), 'success': False, 'job_id': job_id}), 422
+    except Exception:
+        logger.exception("Video reconstruction failed")
+        return jsonify({'error': '多视角重建失败；请检查后端日志和素材'}), 500
+
+
+@app.route('/api/video/models/<job_id>/<asset_name>', methods=['GET'])
+def get_reconstruction_asset(job_id, asset_name):
+    if not job_id.isalnum() or asset_name not in {'mesh.ply', 'pointcloud.ply'}:
+        return jsonify({'error': '模型文件路径无效'}), 400
+    base = Path(app.instance_path) / 'reconstructions' / job_id / 'colmap' / 'dense'
+    filename = 'mesh.ply' if asset_name == 'mesh.ply' else 'fused.ply'
+    if not (base / filename).is_file():
+        return jsonify({'error': '模型文件不存在；重建可能未完成'}), 404
+    return send_from_directory(base, filename, mimetype='application/octet-stream', as_attachment=False)
 
 
 @app.route('/api/detect', methods=['POST'])
