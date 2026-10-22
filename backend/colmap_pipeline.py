@@ -28,13 +28,13 @@ def _run(command: list[str], stage: str, timeout: int = 1800) -> str:
 
 def run_colmap_mvs(images_dir: str | Path, output_dir: str | Path, *, executable: str = "colmap") -> dict[str, Any]:
     """Run feature extraction, matching, sparse mapping and dense meshing on prepared images."""
-    binary = shutil.which(executable)
-    if not binary:
-        raise ReconstructionError("未找到 COLMAP 可执行文件。请安装 COLMAP 并确保 colmap 在 PATH 中。")
     images = Path(images_dir).resolve()
     out = Path(output_dir).resolve()
     if not images.is_dir() or not any(p.suffix.lower() in {".jpg", ".jpeg", ".png", ".tif", ".tiff"} for p in images.iterdir() if p.is_file()):
         raise ReconstructionError("没有可用于摄影测量的图像。请先提取足够清晰、视角不同的帧。")
+    binary = shutil.which(executable)
+    if not binary:
+        raise ReconstructionError("未找到 COLMAP 可执行文件。请安装 COLMAP 并确保 colmap 在 PATH 中。")
     out.mkdir(parents=True, exist_ok=True)
     database = out / "database.db"
     sparse = out / "sparse"
