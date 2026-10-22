@@ -1,10 +1,11 @@
 from pathlib import Path
+import sqlite3
 
 import numpy as np
 import pytest
 import trimesh
 
-from backend.colmap_pipeline import ReconstructionError, inspect_mesh, run_colmap_mvs
+from backend.colmap_pipeline import ReconstructionError, _remove_same_capture_panorama_pairs, inspect_mesh, run_colmap_mvs
 
 
 def _write_mesh(path: Path, *, duplicate: bool = False, degenerate: bool = False) -> Path:
@@ -72,3 +73,39 @@ def test_mesh_quality_reports_disconnected_components(tmp_path):
     report = inspect_mesh(path)
     assert report["connected_components"] == 2
     assert any("多个独立连通组件" in warning for warning in report["warnings"])
+
+
+def test_panorama_filter_removes_only_same_source_frame_pairs(tmp_path):
+    database = tmp_path / "database.db"
+    with sqlite3.connect(database) as db:
+        db.executescript("""
+            CREATE TABLE images (image_id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+            CREATE TABLE matches (pair_id INTEGER PRIMARY KEY);
+            CREATE TABLE two_view_geometries (pair_id INTEGER PRIMARY KEY);
+        """)
+        db.executemany("INSERT INTO images VALUES (?, ?)", [
+            (1, "frame_0000_front.jpg"),
+            (2, "frame_0000_right.jpg"),
+            (3, "frame_0001_front.jpg"),
+        ])
+        same_frame_pair = 2147483647 * 1 + 2
+        different_frame_pair = 2147483647 * 1 + 3
+        db.executemany("INSERT INTO matches VALUES (?)", [(same_frame_pair,), (different_frame_pair,)])
+        db.executemany("INSERT INTO two_view_geometries VALUES (?)", [(same_frame_pair,), (different_frame_pair,)])
+    removed = _remove_same_capture_panorama_pairs(database)
+    assert removed == 1
+    with sqlite3.connect(database) as db:
+        assert db.execute("SELECT pair_id FROM matches ORDER BY pair_id").fetchall() == [(different_frame_pair,)]
+        assert db.execute("SELECT pair_id FROM two_view_geometries ORDER BY pair_id").fetchall() == [(different_frame_pair,)]
+
+
+def test_panorama_filter_is_noop_for_regular_video_names(tmp_path):
+    database = tmp_path / "database.db"
+    with sqlite3.connect(database) as db:
+        db.executescript("""
+            CREATE TABLE images (image_id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+            CREATE TABLE matches (pair_id INTEGER PRIMARY KEY);
+            CREATE TABLE two_view_geometries (pair_id INTEGER PRIMARY KEY);
+        """)
+        db.executemany("INSERT INTO images VALUES (?, ?)", [(1, "frame_0000.jpg"), (2, "frame_0001.jpg")])
+    assert _remove_same_capture_panorama_pairs(database) == 0
