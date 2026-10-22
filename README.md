@@ -7,7 +7,8 @@ PhotoCatch 是一个本地运行的实验性原型：通过摄像头抓取单帧
 ## 当前功能
 
 - 本地 Flask API：健康检查、候选区域检测、ROI 网格生成。
-- 视频导入（MP4/MOV 等）、时间分布抽帧、清晰度/亮度/特征匹配初检和代表帧预览。
+- 视频导入（MP4/MOV 等）、时间分布抽帧、清晰度/亮度/几何一致性/视差初检和代表帧预览。
+- 可选 COLMAP SfM/MVS 流程：特征提取、匹配、稀疏重建、深度估计、深度融合和 Poisson 网格生成；COLMAP 失败时明确返回错误，不回退成伪 3D。
 - 摄像头捕获、候选区域选择和 API 错误提示。
 - Three.js 交互式网格预览：拖动旋转、滚轮缩放。
 - 导出当前网格为 JSON。
@@ -18,7 +19,7 @@ PhotoCatch 是一个本地运行的实验性原型：通过摄像头抓取单帧
 
 - Python 3.11（CI 使用版本；建议本地也使用 3.11）
 - 可访问摄像头的现代浏览器
-- 本地依赖安装需要网络
+- 本地 Python 依赖安装需要网络；真正多视角重建还需要单独安装 COLMAP 命令行程序，并确保 `colmap` 位于 PATH
 - 浏览器需支持 WebGL；摄像头一般要求 localhost 或 HTTPS
 - 前端当前从 jsDelivr 加载 Three.js，因此首次使用预览需要浏览器网络访问该 CDN
 
@@ -48,7 +49,7 @@ python -m http.server 8000
 http://127.0.0.1:8000/frontend/index.html
 ```
 
-允许摄像头权限，点击“启动摄像头” → “检测当前帧” → 选择候选区域 → “为所选区域生成 3D”。后端地址默认是 `http://127.0.0.1:5000`。如需指定其他 API 地址，可在 URL 中加入 `?api=http://127.0.0.1:5001`（仅限可信的本地服务）。
+导入视频后点击“提取多帧并评估”。初检通过时可点击“运行 COLMAP 多视角重建”；该过程要求已安装 COLMAP，可能消耗较多 CPU、内存和磁盘空间。摄像头单帧检测仍可用于原型试验，但它不是多视角重建。后端地址默认是 `http://127.0.0.1:5000`。如需指定其他 API 地址，可在 URL 中加入 `?api=http://127.0.0.1:5001`（仅限可信的本地服务）。
 
 ## 自动化测试
 
@@ -61,7 +62,9 @@ python -m pytest -q
 ## API
 
 - `GET /api/health`
-- `POST /api/video/analyze`：multipart/form-data，字段名 `video`；提取最多 24 帧并返回清晰度、亮度、ORB 特征匹配启发式指标及预览帧。初检不是重建结果，也不能单独证明相机运动或 SfM 可解。
+- `POST /api/video/analyze`：multipart/form-data，字段名 `video`；提取最多 24 帧并返回清晰度、亮度、几何一致性、视差启发式指标及预览帧。初检不是重建结果，也不能单独证明相机运动或 SfM 可解。
+- `POST /api/video/reconstruct`：multipart/form-data，字段名 `video`；先执行保守初检，再调用本机 COLMAP SfM/MVS，成功时返回网格 URL。未通过输入门槛、未安装 COLMAP 或重建失败时会返回明确错误，不会伪造成功。
+- `GET /api/video/models/{job_id}/mesh.ply` 与 `pointcloud.ply`：读取已生成的 PLY 资产。
 - `POST /api/detect`：JSON body `{"image":"data:image/jpeg;base64,..."}`
 - `POST /api/reconstruct`：JSON body 包含图像和整数边界框 `{"image":"...","bbox":[x,y,width,height]}`
 - `GET /api/models`
@@ -78,5 +81,6 @@ python -m pytest -q
 - 真实浏览器端到端流程（摄像头 → 检测 → 重建 → WebGL 预览）。
 - 多类物体检测的准确率、跨视频稳定性和性能基准。
 - 更稳健的噪声/自交轮廓处理。
-- 真正的多视角摄影测量重建（COLMAP SfM/MVS）；视频输入初检目前只做启发式质量评估，并不输出三维模型。
+- 真实视频/真实物体的重建质量验收仍依赖实际运行 COLMAP 的素材、计算环境和人工检查；输入初检指标只是启发式，不保证模型完整或可辨认。
+- 输出目前为 PLY 网格/点云；真实纹理贴图、自动网格连通性/孔洞检查、尺度恢复和完整浏览器 E2E 测试仍需后续验收。
 - GLB/GLTF 导出、设置持久化和设备兼容性测试。
