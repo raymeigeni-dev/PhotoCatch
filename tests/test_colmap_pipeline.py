@@ -117,3 +117,12 @@ def test_openmvs_densify_uses_depth_map_fusion_mode():
     assert _openmvs_densify_command("DensifyPointCloud", "/tmp/scene.mvs") == [
         "DensifyPointCloud", "/tmp/scene.mvs", "--fusion-mode", "0"
     ]
+
+
+def test_openmvs_densify_can_retry_at_full_resolution():
+    assert _openmvs_densify_command(
+        "DensifyPointCloud", "/tmp/scene.mvs", resolution_level=0
+    ) == [
+        "DensifyPointCloud", "/tmp/scene.mvs", "--fusion-mode", "0",
+        "--resolution-level", "0",
+    ]
