@@ -133,7 +133,7 @@ def _remove_same_capture_panorama_pairs(database_path: str | Path) -> int:
     with sqlite3.connect(str(path)) as db:
         rows = db.execute("SELECT image_id, name FROM images").fetchall()
         grouped: dict[str, list[int]] = {}
-        pattern = re.compile(r"(?:^|/)frame_(\d+)_([a-z]+)\.(?:jpg|jpeg|png)$", re.IGNORECASE)
+        pattern = re.compile(r"(?:^|/)(?:front|right|back|left|up|down)/frame_(\d+)\.(?:jpg|jpeg|png)$", re.IGNORECASE)
         for image_id, name in rows:
             match = pattern.search(str(name))
             if match:
