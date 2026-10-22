@@ -51,20 +51,20 @@ def inspect_mesh(mesh_path: str | Path) -> dict[str, Any]:
     double_areas = np.linalg.norm(np.cross(triangles[:, 1] - triangles[:, 0],
                                             triangles[:, 2] - triangles[:, 0]), axis=1)
     degenerate_faces = int(np.sum(double_areas <= 1e-12))
-    components = mesh.split(only_watertight=False)
+    # Reject corrupt topology before operations such as connected-component
+    # splitting, which may invoke optional graph-repair dependencies.
+    if duplicate_faces:
+        raise ReconstructionError(f"网格质量检查失败：发现 {duplicate_faces} 个重复三角面")
+    if degenerate_faces:
+        raise ReconstructionError(f"网格质量检查失败：发现 {degenerate_faces} 个退化三角面")
     areas = np.asarray(mesh.area_faces)
     bounds = np.asarray(mesh.bounds, dtype=float)
     extent = bounds[1] - bounds[0]
     if not np.isfinite(extent).all() or float(extent.max()) <= 1e-9:
         raise ReconstructionError("模型包围盒尺寸无效或退化")
-    # Reject obvious topology corruption. A mesh can still have holes or be the
-    # wrong object, so report watertightness and component counts separately.
-    if duplicate_faces:
-        raise ReconstructionError(f"网格质量检查失败：发现 {duplicate_faces} 个重复三角面")
-    if degenerate_faces:
-        raise ReconstructionError(f"网格质量检查失败：发现 {degenerate_faces} 个退化三角面")
     if not np.isfinite(areas).all() or float(areas.sum()) <= 1e-10:
         raise ReconstructionError("网格表面积无效")
+    components = mesh.split(only_watertight=False)
     return {
         "vertices": int(len(vertices)),
         "faces": int(len(faces)),
@@ -119,8 +119,12 @@ def run_colmap_mvs(images_dir: str | Path, output_dir: str | Path, *, executable
     registered_images_file = registered_txt / "images.txt"
     registered_images = 0
     if registered_images_file.is_file():
-        registered_images = sum(1 for line in registered_images_file.read_text(errors="replace").splitlines()
-                                if line.strip() and not line.lstrip().startswith("#") and len(line.split()) >= 10)
+        registered_images = sum(
+            1 for line in registered_images_file.read_text(errors="replace").splitlines()
+            if (lambda parts: len(parts) >= 10 and parts[0].isdigit()
+                and parts[8].isdigit() and ('.' in parts[9] or '/' in parts[9]))(line.split())
+            and not line.lstrip().startswith("#")
+        )
     if registered_images < 6:
         raise ReconstructionError(f"COLMAP 仅注册 {registered_images} 张相机图像，少于 6 张；视角重叠或特征不足")
     dense.mkdir(exist_ok=True)
