@@ -136,7 +136,9 @@ def reconstruct_uploaded_video():
                 if mode == 'panorama360':
                     views = equirectangular_to_perspective_views(frame, output_size=640, horizontal_fov_degrees=100)
                     for direction, view in views:
-                        target = images_dir / f'frame_{source_frame_index:04d}_{direction}.jpg'
+                        view_dir = images_dir / direction
+                        view_dir.mkdir(parents=True, exist_ok=True)
+                        target = view_dir / f'frame_{source_frame_index:04d}.jpg'
                         if cv2.imwrite(str(target), view, [cv2.IMWRITE_JPEG_QUALITY, 94]):
                             saved += 1
                 elif cv2.imwrite(str(images_dir / f'frame_{saved:04d}.jpg'), frame, [cv2.IMWRITE_JPEG_QUALITY, 95]):
