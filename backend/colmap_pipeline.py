@@ -4,7 +4,9 @@ This module never substitutes a silhouette extrusion when photogrammetry fails.
 """
 from __future__ import annotations
 
+import re
 import shutil
+import sqlite3
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -115,6 +117,38 @@ def inspect_mesh(mesh_path: str | Path) -> dict[str, Any]:
     }
 
 
+def _remove_same_capture_panorama_pairs(database_path: str | Path) -> int:
+    """Remove pairwise constraints between virtual views from the same source frame.
+
+    Virtual perspective crops share one physical camera center. Treating their
+    matches as a translational baseline can create false triangulation. This
+    filter removes those pairs from both COLMAP match tables; it does not replace
+    full rig/frame pose constraints, which remain a limitation of this pipeline.
+    """
+    path = Path(database_path)
+    if not path.is_file():
+        return 0
+    with sqlite3.connect(str(path)) as db:
+        rows = db.execute("SELECT image_id, name FROM images").fetchall()
+        grouped: dict[str, list[int]] = {}
+        pattern = re.compile(r"(?:^|/)frame_(\\d+)_([a-z]+)\\.(?:jpg|jpeg|png)$", re.IGNORECASE)
+        for image_id, name in rows:
+            match = pattern.search(str(name))
+            if match:
+                grouped.setdefault(match.group(1), []).append(int(image_id))
+        pair_ids: set[int] = set()
+        for ids in grouped.values():
+            for index, first in enumerate(ids):
+                for second in ids[index + 1:]:
+                    a, b = sorted((first, second))
+                    pair_ids.add(2147483647 * a + b)
+        for pair_id in pair_ids:
+            db.execute("DELETE FROM matches WHERE pair_id = ?", (pair_id,))
+            db.execute("DELETE FROM two_view_geometries WHERE pair_id = ?", (pair_id,))
+        db.commit()
+    return len(pair_ids)
+
+
 def run_colmap_mvs(images_dir: str | Path, output_dir: str | Path, *, executable: str = "colmap") -> dict[str, Any]:
     """Run feature extraction, matching, sparse mapping and dense meshing on prepared images."""
     images = Path(images_dir).resolve()
@@ -134,6 +168,9 @@ def run_colmap_mvs(images_dir: str | Path, output_dir: str | Path, *, executable
     _run([binary, "feature_extractor", "--database_path", str(database), "--image_path", str(images),
           "--ImageReader.single_camera", "1"], "特征提取")
     _run([binary, "exhaustive_matcher", "--database_path", str(database)], "多视图特征匹配")
+    # In 360 mode, virtual crops from the same source frame share one optical
+    # center. Remove their pairwise matches before mapper can triangulate them.
+    _remove_same_capture_panorama_pairs(database)
     _run([binary, "mapper", "--database_path", str(database), "--image_path", str(images),
           "--output_path", str(sparse)], "SfM 稀疏重建", timeout=3600)
     models = sorted((p for p in sparse.iterdir() if p.is_dir() and (p / "images.bin").exists()),
