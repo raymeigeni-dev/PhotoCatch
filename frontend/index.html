@@ -142,7 +142,7 @@
           report.message || '分析完成',
           '视频：'+(v.width||'?')+'×'+(v.height||'?')+'，'+(v.duration_seconds??'?')+' 秒，'+(v.fps??'?')+' FPS',
           '成功抽帧：'+(s.extracted_frames??0)+'；中位清晰度：'+(q.sharpness_median??'?'),
-          '可匹配帧对：'+(q.feature_match_pairs??0)+'/'+(q.pairs_checked??0)+'；变化帧对：'+(q.changed_view_pairs??0),
+          '几何一致帧对：'+(q.geometrically_supported_pairs??0)+'/'+(q.pairs_checked??0)+'；视差帧对：'+(q.parallax_pairs??0),
           '初检结论：'+(report.reconstruction_ready?'可进入后续重建尝试':'暂不建议进入重建'),
           ...(report.warnings||[])
         ];
