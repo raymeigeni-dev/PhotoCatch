@@ -238,7 +238,13 @@ def run_colmap_mvs(images_dir: str | Path, output_dir: str | Path, *, executable
         openmvs_mesh = dense / "scene_dense_mesh.ply"
         if not openmvs_mesh.is_file() or openmvs_mesh.stat().st_size < 128:
             raise ReconstructionError("OpenMVS 未生成预期的 scene_dense_mesh.ply；请查看 OpenMVS 的 LOG 文件")
-        mesh = openmvs_mesh
+        # Normalize OpenMVS outputs to the same API asset names used by COLMAP.
+        normalized_mesh = dense / "mesh.ply"
+        normalized_fused = dense / "fused.ply"
+        shutil.copy2(openmvs_mesh, normalized_mesh)
+        shutil.copy2(fused, normalized_fused)
+        mesh = normalized_mesh
+        fused = normalized_fused
         method = "COLMAP SfM + OpenMVS CPU SGM + mesh reconstruction"
     quality = inspect_mesh(mesh)
     return {
