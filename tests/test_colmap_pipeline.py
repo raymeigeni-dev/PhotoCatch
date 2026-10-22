@@ -84,9 +84,9 @@ def test_panorama_filter_removes_only_same_source_frame_pairs(tmp_path):
             CREATE TABLE two_view_geometries (pair_id INTEGER PRIMARY KEY);
         """)
         db.executemany("INSERT INTO images VALUES (?, ?)", [
-            (1, "frame_0000_front.jpg"),
-            (2, "frame_0000_right.jpg"),
-            (3, "frame_0001_front.jpg"),
+            (1, "front/frame_0000.jpg"),
+            (2, "right/frame_0000.jpg"),
+            (3, "front/frame_0001.jpg"),
         ])
         same_frame_pair = 2147483647 * 1 + 2
         different_frame_pair = 2147483647 * 1 + 3
