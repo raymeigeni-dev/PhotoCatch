@@ -141,6 +141,7 @@ def run_colmap_mvs(images_dir: str | Path, output_dir: str | Path, *, executable
     if not models:
         raise ReconstructionError("COLMAP 未恢复出可用的相机/稀疏点云。请增加相邻视角重叠、静止目标表面纹理和相机视差；不要只拍目标自身旋转。")
     registered_txt = out / "registered_model_txt"
+    registered_txt.mkdir(parents=True, exist_ok=True)
     _run([binary, "model_converter", "--input_path", str(models[0]), "--output_path", str(registered_txt),
           "--output_type", "TXT"], "导出稀疏相机模型")
     registered_images_file = registered_txt / "images.txt"
