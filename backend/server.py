@@ -16,6 +16,7 @@ try:
     from backend.utils import encode_image, decode_image
     from backend.video_input import analyze_video
     from backend.colmap_pipeline import run_colmap_mvs, ReconstructionError
+    from backend.panorama import equirectangular_to_perspective_views, is_equirectangular
 except ModuleNotFoundError:
     # Also support the documented "python backend/server.py" launch command.
     from detector import ObjectDetector
@@ -23,6 +24,7 @@ except ModuleNotFoundError:
     from utils import encode_image, decode_image
     from video_input import analyze_video
     from colmap_pipeline import run_colmap_mvs, ReconstructionError
+    from panorama import equirectangular_to_perspective_views, is_equirectangular
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
@@ -62,6 +64,19 @@ def analyze_uploaded_video():
             tmp_path = tmp.name
             upload.save(tmp)
         report = analyze_video(tmp_path)
+        mode = request.form.get('mode', 'ordinary')
+        if mode == 'panorama360':
+            width, height = report['video']['width'], report['video']['height']
+            report['capture_mode'] = 'panorama360'
+            report['panorama_dimensions_detected'] = is_equirectangular(width, height)
+            report['reconstruction_ready'] = bool(report['panorama_dimensions_detected'])
+            report['message'] = ('检测到接近 2:1 的全景画幅；将投影为重叠透视视图后尝试 SfM。' if report['panorama_dimensions_detected']
+                                 else '所选 360°模式下，视频尺寸不像 2:1 等距柱状投影。请先在 Insta360/GoPro 软件中导出标准 360°全景视频。')
+            report['warnings'] = list(report.get('warnings', [])) + [
+                '全景透视投影只增加视野覆盖，不会产生新的相机基线；若设备仅原地旋转，真实深度重建仍可能失败。',
+                '360°视频应优先使用设备官方软件导出的完整等距柱状投影文件；已拼接、裁切或防抖重构的文件可能不适合。'
+            ]
+            report['next_step'] = '全景帧透视投影 + COLMAP 稀疏重建；仍须验证真实相机平移视差'
         return jsonify(report)
     except ValueError as exc:
         return jsonify({'error': str(exc)}), 422
@@ -92,9 +107,15 @@ def reconstruct_uploaded_video():
     try:
         images_dir.mkdir(parents=True, exist_ok=False)
         upload.save(upload_path)
+        mode = request.form.get('mode', 'ordinary')
+        if mode not in {'ordinary', 'panorama360'}:
+            return jsonify({'error': 'mode 仅支持 ordinary 或 panorama360'}), 400
         report = analyze_video(str(upload_path), max_frames=36, max_dimension=1200)
-        if not report.get('reconstruction_ready'):
+        if mode == 'ordinary' and not report.get('reconstruction_ready'):
             return jsonify({'error': '视频未通过保守的输入质量门槛，未启动重建。', 'analysis': report}), 422
+        if mode == 'panorama360':
+            if not is_equirectangular(report['video']['width'], report['video']['height']):
+                return jsonify({'error': '全景模式需要接近 2:1 的标准等距柱状投影视频；请先从 Insta360/GoPro 官方软件导出 360°全景视频。', 'analysis': report}), 422
 
         cap = cv2.VideoCapture(str(upload_path))
         if not cap.isOpened():
@@ -117,13 +138,14 @@ def reconstruct_uploaded_video():
         finally:
             cap.release()
         if saved < 8:
-            return jsonify({'error': f'有效抽帧仅 {saved} 张，至少需要 8 张；未启动重建。', 'analysis': report}), 422
+            return jsonify({'error': f'有效重建图像仅 {saved} 张，至少需要 8 张；未启动重建。', 'analysis': report}), 422
         result = run_colmap_mvs(images_dir, root / 'colmap')
         result.update({
             'job_id': job_id,
             'mesh_url': f'/api/video/models/{job_id}/mesh.ply',
             'point_cloud_url': f'/api/video/models/{job_id}/pointcloud.ply',
             'input_images': saved,
+            'capture_mode': mode,
             'input_analysis': report,
             'success': True,
         })
