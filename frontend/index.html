@@ -187,11 +187,6 @@
         if(!geometry.getAttribute('position')||geometry.getAttribute('position').count<3) throw new Error('COLMAP 网格没有足够顶点。');
         geometry.computeVertexNormals();
         const pos=geometry.getAttribute('position');
-        const seen=new Set();
-        for(let i=0;i<pos.count;i++) {
-          const key=[pos.getX(i).toFixed(4),pos.getY(i).toFixed(4),pos.getZ(i).toFixed(4)].join(',');
-          seen.add(key);
-        }
         const meshData={vertices:pos.count,faces:geometry.index?geometry.index.count/3:pos.count/3,colors:geometry.getAttribute('color')?pos.count:0};
         initViewer();
         if(mesh){scene.remove(mesh);mesh.geometry.dispose();mesh.material.dispose();}
