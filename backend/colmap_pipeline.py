@@ -224,16 +224,21 @@ def run_colmap_mvs(images_dir: str | Path, output_dir: str | Path, *, executable
         scene = dense / "scene.mvs"
         _run([interface, "-i", str(dense), "-o", str(scene), "--image-folder", str(dense / "images")],
              "OpenMVS 导入 COLMAP 稀疏模型", timeout=1800)
-        # OpenMVS SGM mode is explicitly CPU-based, so it can run on Apple Silicon
-        # without pretending COLMAP's CUDA PatchMatch is available.
-        _run([densify, str(scene), "--fusion-mode", "-2"], "OpenMVS CPU 稠密重建", timeout=14400)
+        if not scene.is_file() or scene.stat().st_size < 128:
+            raise ReconstructionError("OpenMVS InterfaceCOLMAP 未生成有效的 scene.mvs；请检查输入目录和 OpenMVS 日志")
+        # OpenMVS documents fusion-mode -2 as CPU Semi-Global Matching (SGM).
+        _run([densify, str(scene), "--fusion-mode", "-2"], "OpenMVS CPU SGM 稠密重建", timeout=14400)
         dense_scene = dense / "scene_dense.mvs"
-        _run([reconstruct, str(dense_scene)], "OpenMVS 表面网格生成", timeout=7200)
+        fused = dense / "scene_dense.ply"
+        if not dense_scene.is_file() or dense_scene.stat().st_size < 128:
+            raise ReconstructionError("OpenMVS 稠密重建未生成 scene_dense.mvs；请检查 OpenMVS 日志和输入图像")
+        if not fused.is_file() or fused.stat().st_size < 128:
+            raise ReconstructionError("OpenMVS 稠密重建未生成有效 scene_dense.ply 点云；不能继续宣称稠密重建成功")
+        _run([reconstruct, str(dense_scene), "-p", str(fused)], "OpenMVS 表面网格生成", timeout=7200)
         openmvs_mesh = dense / "scene_dense_mesh.ply"
         if not openmvs_mesh.is_file() or openmvs_mesh.stat().st_size < 128:
             raise ReconstructionError("OpenMVS 未生成预期的 scene_dense_mesh.ply；请查看 OpenMVS 的 LOG 文件")
         mesh = openmvs_mesh
-        fused = dense / "scene_dense.ply"
         method = "COLMAP SfM + OpenMVS CPU SGM + mesh reconstruction"
     quality = inspect_mesh(mesh)
     return {
