@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#111827">
+  <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
   <title>PhotoCatch · 实验性 3D 捕捉</title>
   <style>
     :root{color-scheme:dark;--bg:#0b1020;--panel:#121a2c;--line:#27334a;--text:#e8edf7;--muted:#9aa8bf;--accent:#8b9cff;--good:#71d7a5;--bad:#ff9a9a}
@@ -63,8 +64,8 @@
   </main>
   <footer>摄像头帧发送到配置的本地 PhotoCatch 后端（默认 http://127.0.0.1:5000）。请通过 localhost 或 HTTPS 打开本页面以获得摄像头权限。</footer>
   <script type="module">
-    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
-    import { PLYLoader } from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/PLYLoader.js';
+    import * as THREE from 'three';
+    import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
 
     const API_BASE = new URLSearchParams(location.search).get('api') || 'http://127.0.0.1:5000';
     const $ = (id) => document.getElementById(id);
@@ -176,7 +177,7 @@
         catch(error){throw new Error('无法连接后端：'+API_BASE);}
         const result=await response.json().catch(()=>({}));
         if(!response.ok) {
-          const detail=result.analysis && result.analysis.warnings ? '\\n'+result.analysis.warnings.join('\\n') : '';
+          const detail=result.analysis && result.analysis.warnings ? '\\n'+result.analysis.warnings.join('\n') : '';
           throw new Error((result.error||('HTTP '+response.status))+detail);
         }
         const meshResponse=await fetch(API_BASE+result.mesh_url);
@@ -207,9 +208,11 @@
         });
         modelData={format:'PhotoCatchCOLMAPMesh',version:1,job_id:result.job_id,mesh_url:result.mesh_url,point_cloud_url:result.point_cloud_url,method:result.method,mesh_bytes:buffer.byteLength,vertices:meshData.vertices,faces:Math.round(meshData.faces)};
         exportBtn.disabled=true;
-        $('videoReport').textContent='COLMAP 已生成多视角网格文件。请人工检查是否为目标本体、表面是否连续、是否存在漂浮碎片/孔洞。当前网格生成不等于纹理质量和完整度验收通过。\\n'+result.note;
-        $('videoReport').dataset.kind='good';
-        message('COLMAP 多视角重建已返回网格。仍需检查模型是否真实且完整。','good');
+        const quality=result.mesh_quality||{};
+        const warnings=Array.isArray(quality.warnings)?quality.warnings:[];
+        $('videoReport').textContent='COLMAP 已生成并通过基础几何检查。相机注册：'+(result.registered_images??'?')+'/'+(result.input_images??'?')+'\n连通组件：'+(quality.connected_components??'?')+'；水密：'+(quality.watertight?'是':'否')+'；纹理贴图：'+(quality.textured?'有':'无')+'\n'+warnings.join('\n')+'\n'+result.note;
+        $('videoReport').dataset.kind=(quality.watertight && quality.connected_components===1 && quality.textured)?'good':'bad';
+        message('COLMAP 网格已载入。请核对目标身份、孔洞、碎片与纹理；几何生成不代表真实模型验收通过。',quality.watertight && quality.connected_components===1 && quality.textured?'good':'bad');
       } catch(error) {
         $('videoReport').textContent='多视角重建失败：'+error.message+'\\n不会回退到轮廓挤出并冒充成功。';
         $('videoReport').dataset.kind='bad';
