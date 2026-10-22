@@ -37,10 +37,12 @@
         <div class="actions">
           <label for="videoFile">导入视频（MP4 / MOV 等）</label>
           <input id="videoFile" type="file" accept="video/mp4,video/quicktime,video/x-m4v,video/x-msvideo,video/x-matroska,video/webm,.mp4,.mov,.m4v,.avi,.mkv,.webm">
+          <label for="videoMode">重建模式</label>
+          <select id="videoMode"><option value="ordinary">普通视频（移动相机）</option><option value="panorama360">360°全景（Insta360 / GoPro MAX）</option></select>
           <button class="primary" id="analyzeVideo">提取多帧并评估</button>
           <button id="runColmap" disabled>运行 COLMAP 多视角重建</button>
         </div>
-        <div id="videoReport" class="message" role="status" aria-live="polite">可先导入视频，检查清晰度、可匹配特征和视角变化。此步骤只评估输入，不会声称已经重建 3D。</div>
+        <div id="videoReport" class="message" role="status" aria-live="polite">可先导入视频，检查清晰度、可匹配特征和视角变化。此步骤只评估输入，不会声称已经重建 3D。普通视频与 360°全景视频请先选择正确模式。</div>
         <div id="framePreviews" class="actions" aria-label="抽取的视频帧预览"></div>
         <div class="actions">
           <button class="primary" id="startCamera">启动摄像头</button>
@@ -134,7 +136,7 @@
       $('videoReport').textContent = '正在上传并分析视频帧；视频较大时可能需要一些时间…';
       $('framePreviews').replaceChildren();
       try {
-        const form = new FormData(); form.append('video', file, file.name);
+        const form = new FormData(); form.append('video', file, file.name); form.append('mode', $('videoMode').value);
         let response;
         try { response = await fetch(API_BASE + '/api/video/analyze', {method:'POST', body:form}); }
         catch (error) { throw new Error('无法连接后端。请确认服务已启动：' + API_BASE); }
@@ -169,9 +171,9 @@
       const file=$('videoFile').files && $('videoFile').files[0];
       if(!file){$('videoReport').textContent='请先选择视频文件。';return;}
       const button=$('runColmap');button.disabled=true;
-      $('videoReport').textContent='正在运行 COLMAP SfM/MVS。该过程可能需要数分钟到更久；请勿关闭后端。';
+      $('videoReport').textContent=$('videoMode').value==='panorama360'?'正在把 360° 全景帧投影为六个重叠透视视图，再运行 SfM/MVS。真实深度仍依赖拍摄过程中的相机平移视差。':'正在运行普通视频 COLMAP SfM/MVS。该过程可能需要数分钟到更久；请勿关闭后端。';
       try {
-        const form=new FormData();form.append('video',file,file.name);
+        const form=new FormData();form.append('video',file,file.name);form.append('mode',$('videoMode').value);
         let response;
         try { response=await fetch(API_BASE+'/api/video/reconstruct',{method:'POST',body:form}); }
         catch(error){throw new Error('无法连接后端：'+API_BASE);}
