@@ -32,7 +32,7 @@ def _run(command: list[str], stage: str, timeout: int = 1800, cwd: str | Path | 
         raise ReconstructionError(f"{stage} 失败（退出码 {result.returncode}）。{details}")
     # Keep both streams: OpenMVS can exit successfully while producing zero points,
     # and its useful diagnosis is often printed to stderr rather than stdout.
-    return "\\n".join(part for part in (result.stdout, result.stderr) if part).strip()
+    return "\n".join(part for part in (result.stdout, result.stderr) if part).strip()
 
 
 def _openmvs_densify_command(
@@ -292,10 +292,10 @@ def run_colmap_mvs(images_dir: str | Path, output_dir: str | Path, *, executable
             if fused.is_file() and fused.stat().st_size >= 128:
                 break
         if not dense_scene.is_file() or dense_scene.stat().st_size < 128:
-            tail = "\\n".join(densify_diagnostics)[-1800:]
+            tail = "\n".join(densify_diagnostics)[-1800:]
             raise ReconstructionError("OpenMVS 稠密重建未生成有效 scene_dense.mvs。诊断日志已保存到 dense/openmvs_densify_*.log。\\n" + tail)
         if not fused.is_file() or fused.stat().st_size < 128:
-            tail = "\\n".join(densify_diagnostics)[-3000:]
+            tail = "\n".join(densify_diagnostics)[-3000:]
             raise ReconstructionError(
                 "OpenMVS 在默认分辨率和全分辨率重试后仍未生成有效 scene_dense.ply 点云；"
                 "不会伪造成功。诊断日志已保存到 dense/openmvs_densify_*.log。\\n" + tail
