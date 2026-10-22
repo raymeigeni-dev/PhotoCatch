@@ -5,7 +5,8 @@ import numpy as np
 import pytest
 import trimesh
 
-from backend.colmap_pipeline import ReconstructionError, _remove_same_capture_panorama_pairs, inspect_mesh, run_colmap_mvs
+from backend.colmap_pipeline import (ReconstructionError, _openmvs_densify_command,
+                                     _remove_same_capture_panorama_pairs, inspect_mesh, run_colmap_mvs)
 
 
 def _write_mesh(path: Path, *, duplicate: bool = False, degenerate: bool = False) -> Path:
@@ -109,3 +110,10 @@ def test_panorama_filter_is_noop_for_regular_video_names(tmp_path):
         """)
         db.executemany("INSERT INTO images VALUES (?, ?)", [(1, "frame_0000.jpg"), (2, "frame_0001.jpg")])
     assert _remove_same_capture_panorama_pairs(database) == 0
+
+
+
+def test_openmvs_densify_uses_depth_map_fusion_mode():
+    assert _openmvs_densify_command("DensifyPointCloud", "/tmp/scene.mvs") == [
+        "DensifyPointCloud", "/tmp/scene.mvs", "--fusion-mode", "0"
+    ]
