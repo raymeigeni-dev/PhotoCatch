@@ -124,7 +124,7 @@ def reconstruct_uploaded_video():
             count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
             positions = np.unique(np.linspace(0, max(0, count - 1), num=min(36, count), dtype=int))
             saved = 0
-            for idx, pos in enumerate(positions):
+            for source_frame_index, pos in enumerate(positions):
                 cap.set(cv2.CAP_PROP_POS_FRAMES, int(pos))
                 ok, frame = cap.read()
                 if not ok or frame is None:
