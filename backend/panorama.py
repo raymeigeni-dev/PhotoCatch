@@ -56,8 +56,8 @@ def equirectangular_to_perspective_views(
         # Camera-local ray -> world ray: yaw around vertical, then pitch.
         xp = x * np.cos(yaw) + z * np.sin(yaw)
         zp = -x * np.sin(yaw) + z * np.cos(yaw)
-        yp = y * np.cos(pitch) - zp * np.sin(pitch)
-        z_world = y * np.sin(pitch) + zp * np.cos(pitch)
+        yp = y * np.cos(pitch) + zp * np.sin(pitch)
+        z_world = -y * np.sin(pitch) + zp * np.cos(pitch)
         longitude = np.arctan2(xp, z_world)
         latitude = np.arcsin(np.clip(yp, -1.0, 1.0))
         map_x = ((longitude / (2.0 * np.pi)) + 0.5) * width
