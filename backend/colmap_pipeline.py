@@ -64,14 +64,41 @@ def inspect_mesh(mesh_path: str | Path) -> dict[str, Any]:
         raise ReconstructionError("模型包围盒尺寸无效或退化")
     if not np.isfinite(areas).all() or float(areas.sum()) <= 1e-10:
         raise ReconstructionError("网格表面积无效")
-    components = mesh.split(only_watertight=False)
+    # Face connectivity via shared vertices; avoids trimesh.split's optional
+    # networkx dependency and keeps the quality gate deterministic.
+    parent = list(range(len(faces)))
+    rank = [0] * len(faces)
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    def union(a: int, b: int) -> None:
+        ra, rb = find(a), find(b)
+        if ra == rb:
+            return
+        if rank[ra] < rank[rb]:
+            ra, rb = rb, ra
+        parent[rb] = ra
+        if rank[ra] == rank[rb]:
+            rank[ra] += 1
+    first_face_by_vertex: dict[int, int] = {}
+    for face_index, face in enumerate(faces):
+        for vertex_index in map(int, face):
+            previous = first_face_by_vertex.setdefault(vertex_index, face_index)
+            union(face_index, previous)
+    component_sizes: dict[int, int] = {}
+    for face_index in range(len(faces)):
+        root = find(face_index)
+        component_sizes[root] = component_sizes.get(root, 0) + 1
+    component_count = len(component_sizes)
     return {
         "vertices": int(len(vertices)),
         "faces": int(len(faces)),
         "duplicate_faces": duplicate_faces,
         "degenerate_faces": degenerate_faces,
-        "connected_components": int(len(components)),
-        "largest_component_face_ratio": round(float(max((len(part.faces) for part in components), default=0) / len(faces)), 5),
+        "connected_components": int(component_count),
+        "largest_component_face_ratio": round(float(max(component_sizes.values(), default=0) / len(faces)), 5),
         "watertight": bool(mesh.is_watertight),
         "winding_consistent": bool(mesh.is_winding_consistent),
         "surface_area": round(float(areas.sum()), 6),
@@ -81,7 +108,7 @@ def inspect_mesh(mesh_path: str | Path) -> dict[str, Any]:
         "textured": bool(getattr(mesh.visual, "kind", None) == "texture"),
         "warnings": [
             *(["网格不是水密封闭表面，存在孔洞或开放边界风险"] if not mesh.is_watertight else []),
-            *(["网格包含多个独立连通组件；需检查漂浮碎片"] if len(components) > 1 else []),
+            *(["网格包含多个独立连通组件；需检查漂浮碎片"] if component_count > 1 else []),
             *(["输出不包含真实 UV 纹理贴图"] if getattr(mesh.visual, "kind", None) != "texture" else []),
             "几何指标不能判断模型是否为正确目标；请在浏览器中人工核验",
         ],
