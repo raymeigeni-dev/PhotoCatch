@@ -1,0 +1,38 @@
+name: Apple Object Capture native build
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "native/apple-object-capture/**"
+      - ".github/workflows/apple-object-capture.yml"
+  push:
+    branches: ["fix/**", "codex/**"]
+    paths:
+      - "native/apple-object-capture/**"
+      - ".github/workflows/apple-object-capture.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    # RealityKit is an Apple framework; Linux runners cannot compile this target.
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show Apple toolchain
+        run: |
+          sw_vers
+          swift --version
+          xcodebuild -version
+      - name: Build native Object Capture helper
+        working-directory: native/apple-object-capture
+        run: swift build -c release
+      - name: Verify CLI usage error is structured
+        working-directory: native/apple-object-capture
+        run: |
+          set +e
+          .build/release/photocatch-apple-capture > /tmp/photocatch-usage.json
+          status=$?
+          set -e
+          test "$status" -eq 2 -o "$status" -eq 64
+          cat /tmp/photocatch-usage.json
