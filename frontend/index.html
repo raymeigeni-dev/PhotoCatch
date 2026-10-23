@@ -295,7 +295,13 @@
         attributes: {
           vertex: vertexAttrs,
           face: { materialIndex: data.faces.map((_, i) => Array.isArray(data.materialIndices) ? (data.materialIndices[i] || 0) : 0) },
-          corner: { splitNormal: data.faces.map(face => face.map(() => [0, 0, 1])) }
+          corner: { splitNormal: data.faces.map(face => {
+            const a=data.vertices[face[0]], b=data.vertices[face[1]], d=data.vertices[face[2]];
+            const u=b.map((v,k)=>v-a[k]), v=d.map((x,k)=>x-a[k]);
+            const n=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]];
+            const length=Math.hypot(...n)||1, normal=n.map(x=>x/length);
+            return face.map(()=>[...normal]);
+          }) }
         },
         materialSlots: Array.isArray(data.materialSlots) ? data.materialSlots : ['Default'],
         object: { name: 'PhotoCatchModel', parent: null, transform: { location:[0,0,0], rotation:[0,0,0], scale:[1,1,1] } }
