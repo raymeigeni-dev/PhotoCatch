@@ -24,9 +24,12 @@ test('interactive editing controls are wired to real editing handlers',()=>{
   assert.match(html,/return mergeVertices\(m,1e-5\)/,'non-indexed geometry must be welded for adjacency operations');
 });
 
-test('destructive geometry rebuild refuses unsupported attributes and material groups',()=>{
-  assert.match(html,/const extra=Object\.keys\(old\.attributes\|\|\{\}\)\.filter/,'must detect non-position attributes');
-  assert.match(html,/const hasGroups=Array\.isArray\(old\.groups\)&&old\.groups\.length>0/,'must detect material groups');
+test('topology edits fail closed before conversion when geometry metadata is unsupported',()=>{
+  assert.match(html,/function assertTopologyEditable\\(g\\)/,'must centralize the geometry safety gate');
+  assert.match(html,/const extra=Object\\.keys\\(g\\.attributes\\|\\|\\{\\}\\)\\.filter/,'must detect non-position attributes such as UVs and colors');
+  assert.match(html,/const hasGroups=Array\\.isArray\\(g\\.groups\\)&&g\\.groups\\.length>0/,'must detect material groups');
   assert.match(html,/const hasMorph=/,'must detect morph attributes');
-  assert.match(html,/为防止数据丢失，已阻止此网格的破坏性编辑/,'must fail closed rather than silently drop data');
+  assert.match(html,/hasPartialDrawRange/,'must detect partial draw ranges');
+  assert.match(html,/function geometryToCore\\(g\\)\\{assertTopologyEditable\\(g\\)/,'must guard before welding/converting the source geometry');
+  assert.match(html,/为防止数据丢失，已阻止此网格的拓扑编辑/,'must fail closed rather than silently drop data');
 });
