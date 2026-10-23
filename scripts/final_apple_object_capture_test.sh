@@ -70,7 +70,7 @@ try:
     urllib.request.urlopen(req, timeout=10)
 except urllib.error.HTTPError as e:
     body = e.read().decode("utf-8", "replace")
-    if e.code != 400 or "video" not in body.lower():
+    if e.code != 400 or ("video" not in body.lower() and "视频" not in body):
         print(f"FAIL: endpoint returned unexpected HTTP {e.code}: {body}")
         raise SystemExit(1)
     print("PASS: Apple endpoint is registered and validates missing upload.")
