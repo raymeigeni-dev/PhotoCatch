@@ -18,10 +18,24 @@ if [[ ! -x "$PYTHON" ]]; then
   exit 1
 fi
 
-if ! "$PYTHON" -c 'import flask, cv2, numpy' >/dev/null 2>&1; then
+if ! "$PYTHON" -c 'import flask, cv2, numpy, requests, trimesh' >/dev/null 2>&1; then
   echo "PhotoCatch dependencies are incomplete."
   echo "Run: .venv/bin/pip install -r requirements.txt"
   exit 1
+fi
+
+# Build the native Apple Object Capture helper when Swift/Xcode tools are available.
+# Keep the other engines launchable if the optional native build fails.
+if [[ "$(uname -s)" == "Darwin" ]] && command -v swift >/dev/null 2>&1; then
+  echo "Building Apple Object Capture helper (optional native engine)..."
+  if (cd "$ROOT/native/apple-object-capture" && swift build -c release); then
+    echo "Apple Object Capture helper build succeeded."
+  else
+    echo "WARNING: Apple Object Capture helper did not build. Other routes can still launch."
+    echo "See the build output above; the test window will report Apple as unavailable."
+  fi
+else
+  echo "WARNING: Swift/Xcode command-line tools not found; Apple helper was not built."
 fi
 
 port_busy() {
@@ -57,7 +71,7 @@ BACKEND_PID=$!
 python3 -m http.server "$FRONTEND_PORT" --bind 127.0.0.1 --directory "$ROOT" >"$FRONTEND_LOG" 2>&1 &
 FRONTEND_PID=$!
 
-URL="http://127.0.0.1:$FRONTEND_PORT/frontend/index.html?api=http://127.0.0.1:$BACKEND_PORT"
+URL="http://127.0.0.1:$FRONTEND_PORT/frontend/reconstruction-lab.html?api=http://127.0.0.1:$BACKEND_PORT"
 echo "Starting PhotoCatch..."
 echo "UI: $URL"
 echo "Backend log: $BACKEND_LOG"
