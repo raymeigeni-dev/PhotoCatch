@@ -17,6 +17,7 @@ try:
     from backend.video_input import analyze_video
     from backend.colmap_pipeline import run_colmap_mvs, ReconstructionError
     from backend.panorama import equirectangular_to_perspective_views, is_equirectangular
+    from backend.apple_object_capture import run_apple_capture, AppleCaptureError
 except ModuleNotFoundError:
     # Also support the documented "python backend/server.py" launch command.
     from detector import ObjectDetector
@@ -25,6 +26,7 @@ except ModuleNotFoundError:
     from video_input import analyze_video
     from colmap_pipeline import run_colmap_mvs, ReconstructionError
     from panorama import equirectangular_to_perspective_views, is_equirectangular
+    from apple_object_capture import run_apple_capture, AppleCaptureError
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
@@ -171,6 +173,84 @@ def reconstruct_uploaded_video():
             shutil.rmtree(images_dir, ignore_errors=True)
         except OSError:
             logger.warning("Could not remove temporary video inputs for job %s", job_id)
+
+
+@app.route('/api/video/reconstruct/apple', methods=['POST'])
+def reconstruct_uploaded_video_apple():
+    """Run Apple's native Object Capture on sampled overlapping video frames.
+    This is an opt-in endpoint; the existing COLMAP route remains unchanged.
+    """
+    upload = request.files.get('video')
+    if upload is None or not upload.filename:
+        return jsonify({'error': '请先选择一个视频文件'}), 400
+    suffix = Path(upload.filename).suffix.lower()
+    if suffix not in {'.mp4', '.mov', '.m4v', '.avi', '.mkv', '.webm'}:
+        return jsonify({'error': '不支持该视频格式'}), 400
+    job_id = uuid.uuid4().hex
+    root = Path(app.instance_path) / 'reconstructions' / job_id
+    images_dir = root / 'apple-images'
+    upload_path = root / ('upload' + suffix)
+    output_path = root / 'apple-object-capture.usdz'
+    try:
+        root.mkdir(parents=True, exist_ok=False)
+        images_dir.mkdir(parents=True, exist_ok=False)
+        upload.save(upload_path)
+        report = analyze_video(str(upload_path), max_frames=48, max_dimension=1600)
+        if not report.get('reconstruction_ready'):
+            return jsonify({
+                'success': False, 'error': '视频未通过输入质量门槛，未启动苹果原生重建。',
+                'analysis': report, 'job_id': job_id,
+            }), 422
+        cap = cv2.VideoCapture(str(upload_path))
+        if not cap.isOpened():
+            return jsonify({'success': False, 'error': '无法解码上传视频'}), 422
+        saved = 0
+        try:
+            count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+            positions = np.unique(np.linspace(0, max(0, count - 1), num=min(48, count), dtype=int))
+            for pos in positions:
+                cap.set(cv2.CAP_PROP_POS_FRAMES, int(pos))
+                ok, frame = cap.read()
+                if not ok or frame is None:
+                    continue
+                h, w = frame.shape[:2]
+                scale = min(1.0, 1600 / max(h, w))
+                if scale < 1:
+                    frame = cv2.resize(frame, (max(1, int(w * scale)), max(1, int(h * scale))), interpolation=cv2.INTER_AREA)
+                target = images_dir / f'frame_{int(pos):06d}.jpg'
+                if cv2.imwrite(str(target), frame, [cv2.IMWRITE_JPEG_QUALITY, 96]):
+                    saved += 1
+        finally:
+            cap.release()
+        if saved < 3:
+            return jsonify({'success': False, 'error': f'有效图像仅 {saved} 张，至少需要 3 张。', 'job_id': job_id}), 422
+        result = run_apple_capture(images_dir, output_path, timeout_seconds=int(os.getenv('PHOTOCATCH_APPLE_TIMEOUT', '7200')))
+        result.update({
+            'job_id': job_id, 'input_images': saved, 'input_analysis': report,
+            'model_url': f'/api/video/apple-models/{job_id}',
+            'message': '苹果原生重建完成；请检查 USDZ 的完整度、纹理和比例后再判定质量。',
+        })
+        return jsonify(result)
+    except AppleCaptureError as exc:
+        logger.warning("Apple Object Capture failed: %s", exc)
+        return jsonify({'success': False, 'error': str(exc), 'job_id': job_id}), 422
+    except Exception:
+        logger.exception("Apple Object Capture endpoint failed")
+        return jsonify({'success': False, 'error': '苹果原生重建失败；请检查后端日志。', 'job_id': job_id}), 500
+    finally:
+        # Retain the generated USDZ and diagnostics, but never retain the uploaded original or sampled frames.
+        upload_path.unlink(missing_ok=True)
+        shutil.rmtree(images_dir, ignore_errors=True)
+
+
+@app.route('/api/video/apple-models/<job_id>', methods=['GET'])
+def get_apple_reconstruction_asset(job_id):
+    if not job_id.isalnum():
+        return jsonify({'error': '模型文件路径无效'}), 400
+    model_path = Path(app.instance_path) / 'reconstructions' / job_id / 'apple-object-capture.usdz'
+    if not model_path.is_file():
+        return jsonify({'error': 'USDZ 模型不存在；重建可能未完成'}), 404
+    return send_from_directory(model_path.parent, model_path.name, mimetype='model/vnd.usdz+zip', as_attachment=True)
 
 
 @app.route('/api/video/models/<job_id>/<asset_name>', methods=['GET'])
