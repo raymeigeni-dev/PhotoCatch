@@ -17,6 +17,13 @@ import subprocess
 import sys
 import tempfile
 
+# Use the same independent triangle-pair counter as the production repair adapter.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TOOLS = os.path.join(ROOT, "tools")
+if TOOLS not in sys.path:
+    sys.path.insert(0, TOOLS)
+from mesh_intersections import count_self_intersections
+
 
 def fail(message):
     raise AssertionError(message)
@@ -147,6 +154,15 @@ def main():
                 for a, b in zip(pre[name][field], post[name][field]):
                     assert abs(a-b) < 2e-4, "%s transform changed for %s: %s -> %s" % (field, name, pre[name][field], post[name][field])
         main_obj = post["Fixture_Main"]
+        # Count the exported GLB after it has been re-imported into this test process;
+        # this is deliberately independent of the repair sidecar's before/after metrics.
+        imported_main = bpy.data.objects.get("Fixture_Main")
+        assert imported_main is not None and imported_main.type == "MESH", "re-imported main mesh missing"
+        imported_mesh = imported_main.data
+        intersections_after_reimport = count_self_intersections(
+            [tuple(v.co) for v in imported_mesh.vertices],
+            [tuple(p.vertices) for p in imported_mesh.polygons]
+        )
         assert main_obj["uv_layers"], "UV layer lost after round-trip"
         assert main_obj["uv_loop_count"] > 0, "UV loop data missing after round-trip"
         assert len(main_obj["materials"]) == 2, "material slots lost after round-trip"
@@ -163,6 +179,8 @@ def main():
         assert intersections.get("status") == "completed", "independent self-intersection detector did not run"
         assert intersections.get("count_before", 0) >= 1, "fixture crossing triangle was not detected before repair"
         assert intersections.get("count_after", -1) >= 1, "post-repair self-intersection count missing or unexpected"
+        assert intersections_after_reimport.get("status") == "completed", "independent detector did not run on re-imported GLB"
+        assert intersections_after_reimport.get("count", 0) >= 1, "crossing triangle was not detected after export and re-import"
         assert metrics["before"].get("self_intersections", {}).get("status") == "completed"
         assert metrics["after"].get("self_intersections", {}).get("status") == "completed"
 
@@ -176,7 +194,8 @@ def main():
             "parent": post["Fixture_Child"]["parent"],
             "repair_report": report,
             "self_intersections_before": intersections.get("count_before"),
-            "self_intersections_after": intersections.get("count_after"),
+            "self_intersections_after_repair": intersections.get("count_after"),
+            "self_intersections_after_reimport": intersections_after_reimport.get("count"),
             "note": "This test validates GLB round-trip attributes, topology metrics, and a known crossing-triangle self-intersection before/after repair."
         }, ensure_ascii=False))
     return 0
