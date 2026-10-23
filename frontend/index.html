@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#111827">
   <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
-  <title>PhotoCatch · 实验性 3D 捕捉</title>
+  <title>PhotoCatch · 实验性多视角 3D 重建</title>
   <style>
     :root{color-scheme:dark;--bg:#0b1020;--panel:#121a2c;--line:#27334a;--text:#e8edf7;--muted:#9aa8bf;--accent:#8b9cff;--good:#71d7a5;--bad:#ff9a9a}
     *{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top,#17223a,var(--bg) 65%);color:var(--text);font:15px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
@@ -25,7 +25,7 @@
 </head>
 <body>
   <header>
-    <div><h1>PhotoCatch</h1><p>摄像头检测 · 轮廓挤出 · 交互式 3D 预览</p></div>
+    <div><h1>PhotoCatch</h1><p>视频多视角摄影测量 · COLMAP / OpenMVS 重建 · 质量报告</p></div>
     <div class="status" id="serverStatus" role="status" aria-live="polite">正在检查后端…</div>
   </header>
   <main>
@@ -206,7 +206,10 @@
         modelData={format:'PhotoCatchCOLMAPMesh',version:1,job_id:result.job_id,mesh_url:result.mesh_url,point_cloud_url:result.point_cloud_url,method:result.method,mesh_bytes:buffer.byteLength,vertices:meshData.vertices,faces:Math.round(meshData.faces)};
         exportBtn.disabled=true;
         const quality=result.mesh_quality||{};
-        const warnings=Array.isArray(quality.warnings)?quality.warnings:[];
+        const warnings=Array.isArray(quality.warnings)?[...quality.warnings]:[];
+        if (!quality.textured && !quality.has_vertex_colors) warnings.push('外观还原未完成：当前 PLY 网格没有 UV 纹理或顶点颜色，因此会以单色显示；这不是完整的真实材质重建。');
+        if (quality.connected_components > 1) warnings.push('模型包含 '+quality.connected_components+' 个独立连通组件；请检查是否存在漂浮碎片，组件数量本身不等于模型质量。');
+        if (!quality.watertight) warnings.push('模型存在开放边界/孔洞风险；当前结果不应视为可直接制造或高精度资产。');
         $('videoReport').textContent='COLMAP 已生成并通过基础几何检查。相机注册：'+(result.registered_images??'?')+'/'+(result.input_images??'?')+'\n连通组件：'+(quality.connected_components??'?')+'；水密：'+(quality.watertight?'是':'否')+'；纹理贴图：'+(quality.textured?'有':'无')+'\n'+warnings.join('\n')+'\n'+result.note;
         $('videoReport').dataset.kind=(quality.watertight && quality.connected_components===1 && quality.textured)?'good':'bad';
         message('COLMAP 网格已载入。请核对目标身份、孔洞、碎片与纹理；几何生成不代表真实模型验收通过。',quality.watertight && quality.connected_components===1 && quality.textured?'good':'bad');
