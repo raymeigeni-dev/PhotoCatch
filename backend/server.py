@@ -18,6 +18,7 @@ try:
     from backend.colmap_pipeline import run_colmap_mvs, ReconstructionError
     from backend.panorama import equirectangular_to_perspective_views, is_equirectangular
     from backend.apple_object_capture import run_apple_capture, AppleCaptureError
+    from backend.cloud_reconstruction import cloud_provider_status, submit_video, get_job, CloudReconstructionError
 except ModuleNotFoundError:
     # Also support the documented "python backend/server.py" launch command.
     from detector import ObjectDetector
@@ -27,6 +28,7 @@ except ModuleNotFoundError:
     from colmap_pipeline import run_colmap_mvs, ReconstructionError
     from panorama import equirectangular_to_perspective_views, is_equirectangular
     from apple_object_capture import run_apple_capture, AppleCaptureError
+    from cloud_reconstruction import cloud_provider_status, submit_video, get_job, CloudReconstructionError
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
@@ -47,6 +49,73 @@ def _json_object():
 @app.route('/api/health', methods=['GET'])
 def health():
     return jsonify({'status': 'ok', 'message': 'Server is running'})
+
+
+@app.route('/api/reconstruction/engines', methods=['GET'])
+def reconstruction_engines():
+    """Report available engines/tools without implying that unavailable ones work."""
+    def available(name):
+        return shutil.which(name) is not None
+    apple_binary = os.getenv("PHOTOCATCH_APPLE_CAPTURE_BIN")
+    apple_candidates = [
+        Path(apple_binary).expanduser() if apple_binary else None,
+        Path(__file__).resolve().parents[1] / "native" / "apple-object-capture" / ".build" / "release" / "photocatch-apple-capture",
+    ]
+    apple_ready = any(p and p.is_file() and os.access(p, os.X_OK) for p in apple_candidates)
+    return jsonify({
+        "engines": [
+            {"id": "openmvs", "type": "local", "ready": all(available(x) for x in ("InterfaceCOLMAP", "DensifyPointCloud", "ReconstructMesh")),
+             "texture_ready": available("TextureMesh"), "refinement_ready": available("RefineMesh"),
+             "note": "本地 CPU 稠密重建；真实纹理贴图需要 TextureMesh。"},
+            {"id": "apple-object-capture", "type": "local", "ready": apple_ready,
+             "platform_supported": __import__("platform").system() == "Darwin",
+             "note": "需要 macOS、已编译原生 helper，并用真实素材验证。"},
+            {"id": "realitycapture-cloud", "type": "cloud-adapter", **cloud_provider_status()},
+        ],
+        "cuda_available": available("nvidia-smi"),
+        "warning": "工具存在性不是重建质量证明；每次任务仍需检查输出资产和视觉质量。",
+    })
+
+
+@app.route('/api/video/reconstruct/cloud', methods=['POST'])
+def reconstruct_uploaded_video_cloud():
+    """Submit a video to a configured provider gateway; submission is not completion."""
+    upload = request.files.get('video')
+    if upload is None or not upload.filename:
+        return jsonify({"success": False, "error": "请先选择一个视频文件"}), 400
+    suffix = Path(upload.filename).suffix.lower()
+    if suffix not in {'.mp4', '.mov', '.m4v', '.avi', '.mkv', '.webm'}:
+        return jsonify({"success": False, "error": "不支持该视频格式"}), 400
+    job_id = uuid.uuid4().hex
+    root = Path(app.instance_path) / "reconstructions" / job_id
+    root.mkdir(parents=True, exist_ok=False)
+    upload_path = root / ("upload" + suffix)
+    try:
+        upload.save(upload_path)
+        result = submit_video(str(upload_path), upload.filename)
+        result.update({
+            "job_id": job_id,
+            "status_url": f"/api/video/reconstruct/cloud/{result['cloud_job_id']}",
+            "message": "视频已提交到已配置的云端网关；请轮询状态，不能将提交成功视为模型已生成。",
+        })
+        return jsonify(result), 202
+    except CloudReconstructionError as exc:
+        logger.warning("Cloud reconstruction not submitted: %s", exc)
+        return jsonify({"success": False, "error": str(exc), "job_id": job_id}), 503
+    finally:
+        upload_path.unlink(missing_ok=True)
+
+
+@app.route('/api/video/reconstruct/cloud/<cloud_job_id>', methods=['GET'])
+def poll_cloud_reconstruction(cloud_job_id):
+    try:
+        result = get_job(cloud_job_id)
+        if result.get("status") == "succeeded":
+            result["quality_verified"] = False
+            result["note"] = "云端任务成功状态尚未验证下载文件、纹理、几何和视觉质量。"
+        return jsonify(result)
+    except CloudReconstructionError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 502
 
 
 @app.route('/api/video/analyze', methods=['POST'])
@@ -255,13 +324,16 @@ def get_apple_reconstruction_asset(job_id):
 
 @app.route('/api/video/models/<job_id>/<asset_name>', methods=['GET'])
 def get_reconstruction_asset(job_id, asset_name):
-    if not job_id.isalnum() or asset_name not in {'mesh.ply', 'pointcloud.ply'}:
+    allowed = {'mesh.ply', 'pointcloud.ply', 'scene_textured_mesh.obj'}
+    if not job_id.isalnum() or asset_name not in allowed:
         return jsonify({'error': '模型文件路径无效'}), 400
     base = Path(app.instance_path) / 'reconstructions' / job_id / 'colmap' / 'dense'
-    filename = 'mesh.ply' if asset_name == 'mesh.ply' else 'fused.ply'
+    filename = {'mesh.ply': 'mesh.ply', 'pointcloud.ply': 'fused.ply',
+                'scene_textured_mesh.obj': 'scene_textured_mesh.obj'}[asset_name]
     if not (base / filename).is_file():
-        return jsonify({'error': '模型文件不存在；重建可能未完成'}), 404
-    return send_from_directory(base, filename, mimetype='application/octet-stream', as_attachment=False)
+        return jsonify({'error': '模型文件不存在；重建可能未完成或当前引擎未生成该格式'}), 404
+    mimetype = 'model/obj' if filename.endswith('.obj') else 'application/octet-stream'
+    return send_from_directory(base, filename, mimetype=mimetype, as_attachment=False)
 
 
 @app.route('/api/detect', methods=['POST'])
