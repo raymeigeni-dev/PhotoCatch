@@ -273,11 +273,17 @@ def reconstruct_uploaded_video_apple():
         images_dir.mkdir(parents=True, exist_ok=False)
         upload.save(upload_path)
         report = analyze_video(str(upload_path), max_frames=48, max_dimension=1600)
+        # The heuristic preflight is advisory, not a hard gate for Apple's native
+        # Object Capture. It can reject valid captures due to ORB/F-matrix heuristics
+        # (especially close-range objects, reflective surfaces, and large viewpoint
+        # changes). Let the native engine make the actual reconstruction decision,
+        # while preserving all warnings and metrics in the API response.
         if not report.get('reconstruction_ready'):
-            return jsonify({
-                'success': False, 'error': '视频未通过输入质量门槛，未启动苹果原生重建。',
-                'analysis': report, 'job_id': job_id,
-            }), 422
+            report.setdefault('warnings', []).append(
+                'PhotoCatch 的启发式初检未通过，但 Apple Object Capture 路线不会仅凭该初检被拦截；'
+                '原生引擎将尝试重建，仍可能因视角覆盖、模糊或纹理不足而失败。'
+            )
+            report['apple_preflight_override'] = True
         cap = cv2.VideoCapture(str(upload_path))
         if not cap.isOpened():
             return jsonify({'success': False, 'error': '无法解码上传视频'}), 422
