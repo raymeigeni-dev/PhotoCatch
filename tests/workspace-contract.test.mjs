@@ -4,8 +4,11 @@ import {readFileSync} from 'node:fs';
 import {spawnSync} from 'node:child_process';
 
 const html=readFileSync(new URL('../frontend/3d-workspace.html',import.meta.url),'utf8');
-const scripts=[...html.matchAll(/<script type="module">([\\s\\S]*?)<\\/script>/g)];
-const script=scripts.at(-1)?.[1];
+const marker='<script type="module">';
+const start=html.indexOf(marker);
+const end=html.lastIndexOf('</script>');
+const script=start>=0&&end>start?html.slice(start+marker.length,end):null;
+
 test('workspace module script parses as JavaScript module',()=>{
   assert.ok(script,'module script must exist');
   const r=spawnSync(process.execPath,['--check','--input-type=module'],{input:script,encoding:'utf8'});
