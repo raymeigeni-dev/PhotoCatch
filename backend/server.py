@@ -324,15 +324,23 @@ def get_apple_reconstruction_asset(job_id):
 
 @app.route('/api/video/models/<job_id>/<asset_name>', methods=['GET'])
 def get_reconstruction_asset(job_id, asset_name):
-    allowed = {'mesh.ply', 'pointcloud.ply', 'scene_textured_mesh.obj'}
-    if not job_id.isalnum() or asset_name not in allowed:
+    fixed_names = {'mesh.ply': 'mesh.ply', 'pointcloud.ply': 'fused.ply',
+                   'scene_textured_mesh.obj': 'scene_textured_mesh.obj'}
+    # TextureMesh also emits MTL and image files. Permit only simple basenames with
+    # known generated-asset extensions; send_from_directory confines access to base.
+    generated_texture_asset = (
+        Path(asset_name).name == asset_name
+        and asset_name.startswith('scene_')
+        and Path(asset_name).suffix.lower() in {'.mtl', '.png', '.jpg', '.jpeg'}
+    )
+    if not job_id.isalnum() or (asset_name not in fixed_names and not generated_texture_asset):
         return jsonify({'error': '模型文件路径无效'}), 400
     base = Path(app.instance_path) / 'reconstructions' / job_id / 'colmap' / 'dense'
-    filename = {'mesh.ply': 'mesh.ply', 'pointcloud.ply': 'fused.ply',
-                'scene_textured_mesh.obj': 'scene_textured_mesh.obj'}[asset_name]
+    filename = fixed_names.get(asset_name, asset_name)
     if not (base / filename).is_file():
         return jsonify({'error': '模型文件不存在；重建可能未完成或当前引擎未生成该格式'}), 404
-    mimetype = 'model/obj' if filename.endswith('.obj') else 'application/octet-stream'
+    import mimetypes
+    mimetype = mimetypes.guess_type(filename)[0] or 'application/octet-stream'
     return send_from_directory(base, filename, mimetype=mimetype, as_attachment=False)
 
 
