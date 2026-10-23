@@ -25,11 +25,11 @@ test('interactive editing controls are wired to real editing handlers',()=>{
 });
 
 test('topology edits fail closed before conversion when geometry metadata is unsupported',()=>{
-  assert.match(html,/function assertTopologyEditable\\(g\\)/,'must centralize the geometry safety gate');
-  assert.match(html,/const extra=Object\\.keys\\(g\\.attributes\\|\\|\\{\\}\\)\\.filter/,'must detect non-position attributes such as UVs and colors');
-  assert.match(html,/const hasGroups=Array\\.isArray\\(g\\.groups\\)&&g\\.groups\\.length>0/,'must detect material groups');
+  assert.match(html,/function assertTopologyEditable\(g\)/,'must centralize the geometry safety gate');
+  assert.match(html,/const extra=Object\.keys\(g\.attributes\|\|\{\}\)\.filter/,'must detect non-position attributes such as UVs and colors');
+  assert.match(html,/const hasGroups=Array\.isArray\(g\.groups\)&&g\.groups\.length>0/,'must detect material groups');
   assert.match(html,/const hasMorph=/,'must detect morph attributes');
   assert.match(html,/hasPartialDrawRange/,'must detect partial draw ranges');
-  assert.match(html,/function geometryToCore\\(g\\)\\{assertTopologyEditable\\(g\\)/,'must guard before welding/converting the source geometry');
+  assert.match(html,/function geometryToCore\(g\)\{assertTopologyEditable\(g\)/,'must guard before welding/converting the source geometry');
   assert.match(html,/为防止数据丢失，已阻止此网格的拓扑编辑/,'must fail closed rather than silently drop data');
 });
