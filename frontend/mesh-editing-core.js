@@ -62,7 +62,7 @@ export function deleteFaces(mesh, ids) { const remove=new Set(ids);mesh.faces=me
 export function extrudeFaces(mesh, ids, distance=0.1) {
   validateMesh(mesh);const chosen=[...new Set(ids)].filter(i=>i>=0&&i<mesh.faces.length);if(!chosen.length)return mesh;
   const topo=buildTopology(mesh),selected=new Set(chosen),boundary=new Map();
-  for(const fi of chosen){const f=mesh.faces[fi];for(let i=0;i<f.length;i++){const a=f[i],b=f[(i+1)%f.length],e=topo.edgeMap.get(keyEdge(a,b));if(!e.faces.every(x=>selected.has(x))){const k=keyEdge(a,b);if(!boundary.has(k))boundary.set(k,{a,b})}}}
+  for(const fi of chosen){const f=mesh.faces[fi];for(let i=0;i<f.length;i++){const a=f[i],b=f[(i+1)%f.length],e=topo.edgeMap.get(keyEdge(a,b));if(e.faces.length===1||!e.faces.every(x=>selected.has(x))){const k=keyEdge(a,b);if(!boundary.has(k))boundary.set(k,{a,b})}}}
   const normals=mesh.vertices.map(()=>[0,0,0]);
   for(const f of mesh.faces){const n=cross(vec(mesh.vertices[f[1]],mesh.vertices[f[0]]),vec(mesh.vertices[f[2]],mesh.vertices[f[0]]));for(const id of f)normals[id]=normals[id].map((x,k)=>x+n[k])}
   const newIds=new Map();for(const fi of chosen)for(const id of mesh.faces[fi])if(!newIds.has(id)){const n=norm(normals[id]);newIds.set(id,mesh.vertices.length);mesh.vertices.push(mesh.vertices[id].map((x,k)=>x+n[k]*distance))}
