@@ -6,7 +6,8 @@ import pytest
 import trimesh
 
 from backend.colmap_pipeline import (ReconstructionError, _openmvs_densify_command,
-                                     _remove_same_capture_panorama_pairs, inspect_mesh, run_colmap_mvs)
+                                     _remove_same_capture_panorama_pairs, _validate_openmvs_scene_image_paths,
+                                     _validate_point_cloud, inspect_mesh, run_colmap_mvs)
 
 
 def _write_mesh(path: Path, *, duplicate: bool = False, degenerate: bool = False) -> Path:
@@ -126,3 +127,41 @@ def test_openmvs_densify_can_retry_at_full_resolution():
         "DensifyPointCloud", "/tmp/scene.mvs", "--fusion-mode", "0",
         "--resolution-level", "0",
     ]
+
+
+
+def test_openmvs_scene_rejects_stale_absolute_image_paths(tmp_path):
+    images = tmp_path / "dense" / "images"
+    images.mkdir(parents=True)
+    (images / "frame_0000.jpg").write_bytes(b"placeholder")
+    scene = tmp_path / "scene.mvs"
+    scene.write_bytes(b"OpenMVS scene /old/PhotoCatch/images/frame_0000.jpg\\x00" + b"x" * 256)
+    with pytest.raises(ReconstructionError, match="引用了不存在的图片路径"):
+        _validate_openmvs_scene_image_paths(scene, images)
+
+
+def test_openmvs_scene_accepts_existing_image_directory_without_stale_paths(tmp_path):
+    images = tmp_path / "dense" / "images"
+    images.mkdir(parents=True)
+    (images / "frame_0000.jpg").write_bytes(b"placeholder")
+    scene = tmp_path / "scene.mvs"
+    scene.write_bytes(b"OpenMVS scene" + b"x" * 256)
+    _validate_openmvs_scene_image_paths(scene, images)
+
+
+def test_point_cloud_validation_rejects_corrupt_ply(tmp_path):
+    path = tmp_path / "corrupt.ply"
+    path.write_bytes(b"not a ply file" + b"x" * 200)
+    with pytest.raises(ReconstructionError, match="无法解析 PLY"):
+        _validate_point_cloud(path)
+
+
+def test_point_cloud_validation_accepts_real_ply_points(tmp_path):
+    cloud = trimesh.points.PointCloud(np.array([
+        [0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 2.0, 0.0]
+    ]))
+    path = tmp_path / "points.ply"
+    cloud.export(path)
+    report = _validate_point_cloud(path)
+    assert report["points"] == 3
+    assert report["bytes"] == path.stat().st_size
