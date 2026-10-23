@@ -230,6 +230,7 @@ def main():
         assert intersections.get("status") == "completed", "independent self-intersection detector did not run"
         assert intersections.get("count_before", 0) >= 1, "fixture crossing triangle was not detected before repair"
         assert intersections.get("count_after", -1) >= 1, "post-repair self-intersection count missing or unexpected"
+        assert intersections.get("repair_status") == "unresolved", "remaining intersections must not be mislabeled as repaired"
         assert intersections_after_reimport.get("status") == "completed", "independent detector did not run on re-imported GLB"
         assert intersections_after_reimport.get("count", 0) >= 1, "crossing triangle was not detected after export and re-import"
         assert metrics["before"].get("self_intersections", {}).get("status") == "completed"
