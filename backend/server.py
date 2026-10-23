@@ -86,14 +86,13 @@ def repair_uploaded_mesh_with_blender():
             report = __import__('json').loads(report_path.read_text(encoding='utf-8')) if report_path.is_file() else None
         except (ValueError, OSError):
             report = None
-        response = send_file(output_path, mimetype='model/gltf-binary', as_attachment=True,
+        response = send_file(__import__('io').BytesIO(output_path.read_bytes()), mimetype='model/gltf-binary', as_attachment=True,
                              download_name='photocatch-repaired.glb', max_age=0)
         response.headers['X-PhotoCatch-Repair'] = 'blender-bmesh'
         if report is not None:
             response.headers['X-PhotoCatch-Report'] = __import__('base64').urlsafe_b64encode(
                 __import__('json').dumps(report, ensure_ascii=False).encode('utf-8')
             ).decode('ascii')
-        response.call_on_close(lambda: __import__('shutil').rmtree(temp_dir, ignore_errors=True))
         return response
 
 
