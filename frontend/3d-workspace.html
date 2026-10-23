@@ -19,7 +19,7 @@
 <div class="group"><button id="centerOrigin">中心归零</button><button id="toggleGrid">网格显示</button></div>
 </nav>
 <div class="layout">
-<aside class="side"><h3>模型 / 场景</h3><div id="dropzone" class="filebox">拖入 3D 文件<br><span class="muted">或从电脑选择</span><input id="sideFile" type="file" multiple accept=".glb,.gltf,.obj,.stl,.ply,.3mf,.dae,.fbx"></div><div class="muted" style="margin:8px 0">支持 GLB / glTF / OBJ / STL / PLY。单个模型可由多个零件组成。</div><div id="objectList"><div class="empty">导入模型后会显示在这里。<br>可同时导入多个文件并在三维空间内组合。</div></div><div style="margin-top:14px"><button id="clearScene">清空场景</button></div></aside>
+<aside class="side"><h3>模型 / 场景</h3><div id="dropzone" class="filebox">拖入 3D 文件<br><span class="muted">或从电脑选择</span><input id="sideFile" type="file" multiple accept=".glb,.gltf,.obj,.stl,.ply,.usdz,.usd,.usda,.usdc,.3mf,.dae,.fbx"></div><div class="muted" style="margin:8px 0">支持 GLB / glTF / OBJ / STL / PLY。单个模型可由多个零件组成。</div><div id="objectList"><div class="empty">导入模型后会显示在这里。<br>可同时导入多个文件并在三维空间内组合。</div></div><div style="margin-top:14px"><button id="clearScene">清空场景</button></div></aside>
 <main class="viewport"><canvas id="view" tabindex="0"></canvas><div class="hud" id="hud">场景为空 · 导入一个或多个 3D 模型</div><div id="notice" class="notice"></div><div class="hint">左键旋转视角 · 右键平移 · 滚轮缩放 · 选中模型后使用移动/旋转/缩放操纵器</div></main>
 <aside class="side right"><h3>属性 / 精确变换</h3><div id="noSelection" class="empty">先在左侧列表或视口中选择一个模型。</div><div id="inspector" hidden>
 <div class="section"><label>对象名称</label><input id="objName"><label>显示</label><div class="checkrow"><input id="objVisible" type="checkbox" checked><span>在场景中显示</span></div></div>
