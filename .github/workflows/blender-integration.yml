@@ -1,0 +1,23 @@
+name: Blender GLB integration
+
+on:
+  pull_request:
+  push:
+    branches:
+      - feat/3d-model-workspace-2026-10-23
+  workflow_dispatch:
+
+jobs:
+  blender-roundtrip:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Blender
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y blender
+      - name: Report Blender version
+        run: blender --version
+      - name: Run GLB repair round-trip integration test
+        run: blender --background --python tests/blender_roundtrip_integration.py -- tools/blender_repair.py

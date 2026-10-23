@@ -51,6 +51,51 @@ def health():
     return jsonify({'status': 'ok', 'message': 'Server is running'})
 
 
+@app.route('/api/mesh/repair', methods=['POST'])
+def repair_uploaded_mesh_with_blender():
+    """Run the optional local Blender/BMesh adapter on an uploaded GLB."""
+    upload = request.files.get('model')
+    if upload is None or not upload.filename:
+        return jsonify({'success': False, 'error': '请先选择或导出一个 GLB 网格'}), 400
+    if Path(upload.filename).suffix.lower() != '.glb':
+        return jsonify({'success': False, 'error': '当前 Blender 修复接口仅接受 GLB 文件'}), 400
+    blender = os.getenv('PHOTOCATCH_BLENDER_BIN') or shutil.which('blender')
+    if not blender:
+        return jsonify({'success': False, 'error': '未找到 Blender。请安装 Blender 并确保 blender 位于 PATH，或设置 PHOTOCATCH_BLENDER_BIN。原模型未修改。'}), 503
+    script = Path(__file__).resolve().parents[1] / 'tools' / 'blender_repair.py'
+    if not script.is_file():
+        return jsonify({'success': False, 'error': '未找到 tools/blender_repair.py；原模型未修改。'}), 503
+    with tempfile.TemporaryDirectory(prefix='photocatch-blender-repair-') as temp_dir:
+        root = Path(temp_dir)
+        input_path = root / 'input.glb'
+        output_path = root / 'photocatch-repaired.glb'
+        upload.save(input_path)
+        try:
+            completed = __import__('subprocess').run(
+                [blender, '--background', '--python', str(script), '--', str(input_path), str(output_path)],
+                capture_output=True, text=True, timeout=int(os.getenv('PHOTOCATCH_BLENDER_TIMEOUT', '300')),
+                check=False,
+            )
+        except __import__('subprocess').TimeoutExpired:
+            return jsonify({'success': False, 'error': 'Blender 修复超过时间限制；原模型未修改。'}), 504
+        if completed.returncode != 0 or not output_path.is_file() or output_path.stat().st_size == 0:
+            logger.warning('Blender repair failed: %s', (completed.stderr or completed.stdout)[-4000:])
+            return jsonify({'success': False, 'error': 'Blender 修复失败，原模型未修改。请检查后端日志及 Blender 版本。'}), 422
+        report_path = Path(str(output_path) + '.repair-report.json')
+        try:
+            report = __import__('json').loads(report_path.read_text(encoding='utf-8')) if report_path.is_file() else None
+        except (ValueError, OSError):
+            report = None
+        response = send_file(__import__('io').BytesIO(output_path.read_bytes()), mimetype='model/gltf-binary', as_attachment=True,
+                             download_name='photocatch-repaired.glb', max_age=0)
+        response.headers['X-PhotoCatch-Repair'] = 'blender-bmesh'
+        if report is not None:
+            response.headers['X-PhotoCatch-Report'] = __import__('base64').urlsafe_b64encode(
+                __import__('json').dumps(report, ensure_ascii=False).encode('utf-8')
+            ).decode('ascii')
+        return response
+
+
 @app.route('/api/reconstruction/engines', methods=['GET'])
 def reconstruction_engines():
     """Report available engines/tools without implying that unavailable ones work."""
