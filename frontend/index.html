@@ -68,13 +68,15 @@
   <script type="module">
     import * as THREE from 'three';
     import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
+    import { createAttributedMesh, attributeAudit } from './attributed-mesh-core.js';
+    import { detectSelfIntersections } from './self-intersection.js';
 
     const API_BASE = new URLSearchParams(location.search).get('api') || 'http://127.0.0.1:5000';
     const $ = (id) => document.getElementById(id);
     const video = $('video'), capture = $('capture'), ctx = capture.getContext('2d', {willReadFrequently:true});
     const startBtn = $('startCamera'), stopBtn = $('stopCamera'), detectBtn = $('detect');
     const reconstructBtn = $('reconstruct'), exportBtn = $('export');
-    let stream = null, frameDataUrl = null, detections = [], selectedDetection = null, modelData = null;
+    let stream = null, frameDataUrl = null, detections = [], selectedDetection = null, modelData = null, attributedMesh = null;
     let renderer = null, scene = null, camera = null, mesh = null, wireframe = null;
     let dragging = false, lastX = 0, lastY = 0, cameraDistance = 3;
     const viewer = $('viewer');
@@ -283,6 +285,23 @@
       if(!Array.isArray(data.vertices)||!Array.isArray(data.faces)||!data.vertices.length||!data.faces.length) throw new Error('后端返回的模型网格为空或格式错误。');
       for(const v of data.vertices) if(!Array.isArray(v)||v.length!==3||!v.every(Number.isFinite)) throw new Error('模型顶点数据无效。');
       for(const f of data.faces) if(!Array.isArray(f)||f.length!==3||!f.every(i=>Number.isInteger(i)&&i>=0&&i<data.vertices.length)) throw new Error('模型三角面索引无效。');
+      // Keep a domain-aware editable data model alongside the render geometry.
+      // UV/split-normal data are corner-domain; material assignment is face-domain.
+      const vertexAttrs = {};
+      if (Array.isArray(data.vertexColors) && data.vertexColors.length === data.vertices.length) vertexAttrs.color = data.vertexColors.map(v => [...v]);
+      attributedMesh = createAttributedMesh({
+        vertices: data.vertices,
+        faces: data.faces,
+        attributes: {
+          vertex: vertexAttrs,
+          face: { materialIndex: data.faces.map((_, i) => Array.isArray(data.materialIndices) ? (data.materialIndices[i] || 0) : 0) },
+          corner: { splitNormal: data.faces.map(face => face.map(() => [0, 0, 1])) }
+        },
+        materialSlots: Array.isArray(data.materialSlots) ? data.materialSlots : ['Default'],
+        object: { name: 'PhotoCatchModel', parent: null, transform: { location:[0,0,0], rotation:[0,0,0], scale:[1,1,1] } }
+      });
+      const intersectionReport = detectSelfIntersections(attributedMesh);
+      const domainAudit = attributeAudit(attributedMesh);
       initViewer();
       if(mesh) { scene.remove(mesh); mesh.geometry.dispose(); mesh.material.dispose(); }
       const indexed=new THREE.BufferGeometry();
@@ -305,7 +324,7 @@
       if(Number.isFinite(maxDim)&&maxDim>0) { mesh.position.sub(box.getCenter(new THREE.Vector3()));cameraDistance=Math.max(1.5,maxDim*2.2);camera.position.set(0,0,cameraDistance);camera.lookAt(0,0,0); }
       $('viewerPlaceholder').style.display='none';
       $('metrics').replaceChildren();
-      [['顶点',data.vertices.length],['三角面',data.faces.length],['颜色',Array.isArray(data.colors)?data.colors.length:0]].forEach(([label,value])=>{
+      [['顶点',data.vertices.length],['三角面',data.faces.length],['颜色',Array.isArray(data.colors)?data.colors.length:0],['自相交面组',intersectionReport.count],['属性域',Object.values(domainAudit.domains).reduce((n,items)=>n+items.length,0)]].forEach(([label,value])=>{
         const span=document.createElement('span');span.className='metric';span.textContent=label+' ';const strong=document.createElement('strong');strong.textContent=String(value);span.append(strong);$('metrics').append(span);
       });
       modelData=data;exportBtn.disabled=false;
