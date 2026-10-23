@@ -205,7 +205,7 @@
           object:{name:'COLMAP reconstructed mesh',parent:null,transform:{location:[0,0,0],rotation:[0,0,0],scale:[1,1,1]}}
         });
         const attributedAudit=attributeAudit(attributedMesh);
-        const intersectionReport=detectSelfIntersections(attributedMesh);
+        const intersectionReport=attributedFaces.length<=20000 ? detectSelfIntersections(attributedMesh) : {status:"not_run",count:null,reason:"Interactive detector limit: 20000 triangles; use offline Blender diagnostics for larger meshes."};
         const meshData={vertices:pos.count,faces:attributedFaces.length,colors:colorAttr?pos.count:0,selfIntersections:intersectionReport.count,attributeDomains:attributedAudit.domains};
         initViewer();
         if(mesh){scene.remove(mesh);mesh.geometry.dispose();mesh.material.dispose();}
@@ -217,7 +217,7 @@
         cameraDistance=Math.max(1.5,maxDim*2.2);camera.position.set(0,0,cameraDistance);camera.lookAt(0,0,0);
         $('viewerPlaceholder').style.display='none';
         $('metrics').replaceChildren();
-        [['网格顶点',meshData.vertices],['三角面',Math.round(meshData.faces)],['顶点颜色',meshData.colors],['自相交面组',meshData.selfIntersections],['文件字节',buffer.byteLength]].forEach(([label,value])=>{
+        [['网格顶点',meshData.vertices],['三角面',Math.round(meshData.faces)],['顶点颜色',meshData.colors],['自相交面组',intersectionReport.status==='completed'?meshData.selfIntersections:'离线检测'],['文件字节',buffer.byteLength]].forEach(([label,value])=>{
           const span=document.createElement('span');span.className='metric';span.textContent=label+' ';const strong=document.createElement('strong');strong.textContent=String(value);span.append(strong);$('metrics').append(span);
         });
         modelData={format:'PhotoCatchCOLMAPMesh',version:1,job_id:result.job_id,mesh_url:result.mesh_url,point_cloud_url:result.point_cloud_url,method:result.method,mesh_bytes:buffer.byteLength,vertices:meshData.vertices,faces:Math.round(meshData.faces),self_intersections:intersectionReport,attribute_audit:attributedAudit};
