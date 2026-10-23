@@ -191,7 +191,22 @@
         if(!geometry.getAttribute('position')||geometry.getAttribute('position').count<3) throw new Error('COLMAP 网格没有足够顶点。');
         geometry.computeVertexNormals();
         const pos=geometry.getAttribute('position');
-        const meshData={vertices:pos.count,faces:geometry.index?geometry.index.count/3:pos.count/3,colors:geometry.getAttribute('color')?pos.count:0};
+        const indexArray=geometry.index ? Array.from(geometry.index.array) : Array.from({length:pos.count},(_,i)=>i);
+        const attributedVertices=Array.from({length:pos.count},(_,i)=>[pos.getX(i),pos.getY(i),pos.getZ(i)]);
+        const attributedFaces=[];
+        for(let i=0;i+2<indexArray.length;i+=3) attributedFaces.push([indexArray[i],indexArray[i+1],indexArray[i+2]]);
+        const colorAttr=geometry.getAttribute('color');
+        const vertexColors=colorAttr ? Array.from({length:colorAttr.count},(_,i)=>[colorAttr.getX(i),colorAttr.getY(i),colorAttr.getZ(i),colorAttr.itemSize>3?colorAttr.getW(i):1]) : null;
+        attributedMesh=createAttributedMesh({
+          vertices:attributedVertices,
+          faces:attributedFaces,
+          materialSlots:['PLY default material'],
+          attributes:{vertex:vertexColors?{color:vertexColors}:{},face:{materialIndex:attributedFaces.map(()=>0)},corner:{}},
+          object:{name:'COLMAP reconstructed mesh',parent:null,transform:{location:[0,0,0],rotation:[0,0,0],scale:[1,1,1]}}
+        });
+        const attributedAudit=attributeAudit(attributedMesh);
+        const intersectionReport=detectSelfIntersections(attributedMesh);
+        const meshData={vertices:pos.count,faces:attributedFaces.length,colors:colorAttr?pos.count:0,selfIntersections:intersectionReport.count,attributeDomains:attributedAudit.domains};
         initViewer();
         if(mesh){scene.remove(mesh);mesh.geometry.dispose();mesh.material.dispose();}
         const material=new THREE.MeshStandardMaterial({color:0xffffff,vertexColors:!!geometry.getAttribute('color'),roughness:0.85,side:THREE.DoubleSide});
@@ -202,10 +217,10 @@
         cameraDistance=Math.max(1.5,maxDim*2.2);camera.position.set(0,0,cameraDistance);camera.lookAt(0,0,0);
         $('viewerPlaceholder').style.display='none';
         $('metrics').replaceChildren();
-        [['网格顶点',meshData.vertices],['三角面',Math.round(meshData.faces)],['顶点颜色',meshData.colors],['文件字节',buffer.byteLength]].forEach(([label,value])=>{
+        [['网格顶点',meshData.vertices],['三角面',Math.round(meshData.faces)],['顶点颜色',meshData.colors],['自相交面组',meshData.selfIntersections],['文件字节',buffer.byteLength]].forEach(([label,value])=>{
           const span=document.createElement('span');span.className='metric';span.textContent=label+' ';const strong=document.createElement('strong');strong.textContent=String(value);span.append(strong);$('metrics').append(span);
         });
-        modelData={format:'PhotoCatchCOLMAPMesh',version:1,job_id:result.job_id,mesh_url:result.mesh_url,point_cloud_url:result.point_cloud_url,method:result.method,mesh_bytes:buffer.byteLength,vertices:meshData.vertices,faces:Math.round(meshData.faces)};
+        modelData={format:'PhotoCatchCOLMAPMesh',version:1,job_id:result.job_id,mesh_url:result.mesh_url,point_cloud_url:result.point_cloud_url,method:result.method,mesh_bytes:buffer.byteLength,vertices:meshData.vertices,faces:Math.round(meshData.faces),self_intersections:intersectionReport,attribute_audit:attributedAudit};
         exportBtn.disabled=true;
         const quality=result.mesh_quality||{};
         const warnings=Array.isArray(quality.warnings)?[...quality.warnings]:[];
