@@ -53,6 +53,22 @@ http://127.0.0.1:8000/frontend/index.html
 
 导入视频后，先在“重建模式”中选择普通视频或 360°全景，再点击“提取多帧并评估”。360°模式要求设备官方软件导出的完整、接近 2:1 的等距柱状投影文件。初检通过时可点击“运行 COLMAP 多视角重建”；该过程要求已安装 COLMAP，可能消耗较多 CPU、内存和磁盘空间。COLMAP 的稠密 PatchMatch 若因缺少 CUDA 失败，会在检测到 OpenMVS 命令行工具时尝试 CPU SGM 备选流程；否则会明确报错并保留已完成的稀疏重建，不会伪造完整网格。摄像头单帧检测仍可用于原型试验，但它不是多视角重建。后端地址默认是 `http://127.0.0.1:5000`。如需指定其他 API 地址，可在 URL 中加入 `?api=http://127.0.0.1:5001`（仅限可信的本地服务）。
 
+## Apple RealityKit Object Capture（新增实验性原生工具）
+
+PhotoCatch 正在评估苹果官方 RealityKit Object Capture 作为额外重建后端。集成方案和验收标准见 [Apple Object Capture 集成计划](docs/apple-object-capture-integration-plan.md)。
+
+原生 Swift 工具位于 `native/apple-object-capture/`，使用 macOS 的 `PhotogrammetrySession` 将一组多视角照片重建为 USDZ。它会先检查 `PhotogrammetrySession.isSupported`，并以 JSON 输出支持状态、输入图像数和输出文件大小。视频仍需先抽取清晰、角度有差异的图像；工具不会直接把 MOV 当作照片目录。
+
+在装有 Xcode Command Line Tools 的受支持 Mac 上，从仓库根目录运行：
+
+```bash
+cd native/apple-object-capture
+swift build -c release
+swift run -c release photocatch-apple-capture /absolute/path/to/job/images /absolute/path/to/job/model.usdz
+```
+
+注意：这只是独立原生工具，尚未接入 Flask 视频重建 API，也未在目标 Mac 上实机编译或使用 `IMG_0096.MOV` 验收。不要将该工具的存在描述为苹果重建已在 PhotoCatch 中可用。iPhone LiDAR 的引导式采集是独立的后续 iOS 伴随应用工作，不等同于 Mac 端重建。
+
 ## 自动化测试
 
 ```bash
