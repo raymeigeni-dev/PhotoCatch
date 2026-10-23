@@ -96,6 +96,23 @@ def make_fixture():
     obj.rotation_euler = (0.1, 0.2, 0.3)
     obj.scale = (1.2, 0.9, 1.1)
 
+    # Real armature + vertex-group weights, exported through the same GLB path.
+    rig_data = bpy.data.armatures.new("FixtureRigData")
+    rig = bpy.data.objects.new("Fixture_Rig", rig_data)
+    bpy.context.collection.objects.link(rig)
+    bpy.context.view_layer.objects.active = rig
+    rig.select_set(True)
+    bpy.ops.object.mode_set(mode="EDIT")
+    bone = rig_data.edit_bones.new("Root")
+    bone.head = (0, 0, 0)
+    bone.tail = (0, 0, 1)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    rig.select_set(False)
+    group = obj.vertex_groups.new(name="Root")
+    group.add(list(range(len(mesh.vertices))), 1.0, "REPLACE")
+    modifier = obj.modifiers.new(name="FixtureArmature", type="ARMATURE")
+    modifier.object = rig
+
     bpy.ops.mesh.primitive_cube_add(size=0.5, location=(0,0,2))
     child = bpy.context.object
     child.name = "Fixture_Child"
@@ -121,6 +138,9 @@ def snapshot():
             mesh = obj.data
             entry["vertices"] = len(mesh.vertices)
             entry["polygons"] = len(mesh.polygons)
+            entry["vertex_groups"] = [group.name for group in obj.vertex_groups]
+            root_group = obj.vertex_groups.get("Root")
+            entry["root_weights"] = [round(float(next((g.weight for g in v.groups if g.group == root_group.index), 0.0)), 4) for v in mesh.vertices[:3]] if root_group else []
             entry["materials"] = [m.name for m in mesh.materials]
             entry["material_indices"] = sorted(set(p.material_index for p in mesh.polygons))
             entry["uv_layers"] = [layer.name for layer in mesh.uv_layers]
@@ -152,6 +172,8 @@ def main():
         assert pre["Fixture_Main"]["uv_layers"], "fixture UV layer was not created"
         assert len(pre["Fixture_Main"]["materials"]) == 2, "fixture needs two material slots"
         assert pre["Fixture_Child"]["parent"] == "Fixture_Main", "fixture parent link missing"
+        assert "Root" in pre["Fixture_Main"]["vertex_groups"], "fixture skin-weight group was not created"
+        assert all(abs(w-1.0)<1e-5 for w in pre["Fixture_Main"]["root_weights"]), "fixture skin weights invalid"
 
         proc = subprocess.run(
             [blender, "--background", "--python", repair_script, "--", source, output],
@@ -176,6 +198,9 @@ def main():
                 for a, b in zip(pre[name][field], post[name][field]):
                     assert abs(a-b) < 2e-4, "%s transform changed for %s: %s -> %s" % (field, name, pre[name][field], post[name][field])
         main_obj = post["Fixture_Main"]
+        assert "Fixture_Rig" in post and post["Fixture_Rig"]["type"] == "ARMATURE", "armature object lost after round-trip"
+        assert "Root" in main_obj["vertex_groups"], "skin-weight vertex group lost after round-trip"
+        assert all(abs(w-1.0)<2e-2 for w in main_obj["root_weights"]), "skin weights changed after round-trip: %s" % main_obj["root_weights"]
         # Count the exported GLB after it has been re-imported into this test process;
         # this is deliberately independent of the repair sidecar's before/after metrics.
         imported_main = bpy.data.objects.get("Fixture_Main")
