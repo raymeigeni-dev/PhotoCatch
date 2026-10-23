@@ -143,7 +143,7 @@ def main():
     sidecar = output_path + ".repair-report.json"
     with open(sidecar, "w", encoding="utf-8") as f:
         json.dump({"input": input_path, "output": output_path, "objects": report,
-                   "self_intersections": {"status": "completed", "count_before": sum(x["before"]["self_intersections"]["count"] for x in report), "count_after": sum(x["after"]["self_intersections"]["count"] for x in report), "per_object": [{"object": x["object"], "before": x["before"]["self_intersections"], "after": x["after"]["self_intersections"]} for x in report], "policy": "Independent AABB sweep and triangle-triangle narrow phase; shared-vertex adjacency excluded."},
+                   "self_intersections": {"status": "completed", "count_before": sum(x["before"]["self_intersections"]["count"] for x in report), "count_after": sum(x["after"]["self_intersections"]["count"] for x in report), "count_delta": sum(x["after"]["self_intersections"]["count"] for x in report) - sum(x["before"]["self_intersections"]["count"] for x in report), "repair_status": "unresolved" if sum(x["after"]["self_intersections"]["count"] for x in report) > 0 else "clear", "per_object": [{"object": x["object"], "before": x["before"]["self_intersections"], "after": x["after"]["self_intersections"]} for x in report], "policy": "Independent AABB sweep and triangle-triangle narrow phase; shared-vertex adjacency excluded. Detector completion does not imply intersection repair."},
                    "warning": "Conservative BMesh operations; not a guarantee of repairing all self-intersections or arbitrary topology."},
                   f, ensure_ascii=False, indent=2)
     print("PHOTOCATCH_REPAIR_REPORT=" + json.dumps({"report": sidecar, "objects": len(report)}))
