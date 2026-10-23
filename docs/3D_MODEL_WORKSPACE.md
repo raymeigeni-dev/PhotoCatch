@@ -18,11 +18,11 @@ The workspace imports Three.js modules from jsDelivr, so the first launch requir
 
 ## Supported import and export
 
-- Import: GLB, glTF, OBJ, STL, PLY.
+- Import: GLB, glTF, OBJ, STL, PLY, USDZ/USD/USDA/USDC (USD loader via Three.js r180).
 - Export: GLB scene assembly, plus a separate JSON scene manifest containing object names and transforms.
 - The JSON manifest does not contain geometry. Export GLB to preserve the assembled model geometry and supported materials.
 - A glTF file that references external texture/image files may not load correctly when imported as a single standalone file. Prefer self-contained GLB when possible.
-- FBX, 3MF and DAE are not implemented by this initial workspace.
+- FBX, 3MF and DAE are not implemented by this initial workspace. USDZ files containing binary USDC and large texture payloads can be memory-intensive; material/texture fidelity, including EXR displacement maps, must be checked after import.
 
 ## Editing features
 
