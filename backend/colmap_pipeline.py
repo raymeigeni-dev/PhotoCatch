@@ -380,6 +380,49 @@ def run_colmap_mvs(images_dir: str | Path, output_dir: str | Path, *, executable
         openmvs_mesh = dense / "scene_dense_mesh.ply"
         if not openmvs_mesh.is_file() or openmvs_mesh.stat().st_size < 128:
             raise ReconstructionError("OpenMVS 未生成预期的 scene_dense_mesh.ply；请查看 OpenMVS 的 LOG 文件")
+
+        # Refine geometry before texturing when the optional OpenMVS tools exist.
+        refine = shutil.which("RefineMesh")
+        if refine:
+            try:
+                _run([refine, str(dense_scene), "-m", str(openmvs_mesh), "-o",
+                      str(dense / "scene_dense_mesh_refine.mvs")],
+                     "OpenMVS 网格细化", timeout=7200, cwd=dense)
+            except ReconstructionError as exc:
+                # Refinement is optional; preserve the valid raw mesh and report the limitation.
+                (dense / "openmvs_refine.log").write_text(str(exc), errors="replace")
+
+        # TextureMesh is the critical missing stage for colored, photorealistic assets.
+        # OpenMVS CLI output naming differs slightly across packaged builds, so discover
+        # the actual OBJ/MTL/texture artifacts after running the supported scene input.
+        texture = shutil.which("TextureMesh")
+        textured_obj = dense / "scene_textured_mesh.obj"
+        texture_status = {"available": bool(texture), "success": False}
+        if texture:
+            try:
+                texture_log = _run(
+                    [texture, str(dense_scene), "--export-type", "obj"],
+                    "OpenMVS 真实纹理贴图", timeout=7200, cwd=dense,
+                )
+                (dense / "openmvs_texture.log").write_text(texture_log, errors="replace")
+                candidates = [textured_obj, dense / "scene_dense_mesh_texture.obj",
+                              dense / "scene_dense_mesh_refine_texture.obj"]
+                existing = next((p for p in candidates if p.is_file() and p.stat().st_size > 128), None)
+                if existing is None:
+                    existing = next((p for p in dense.glob("*.obj") if p.is_file() and p.stat().st_size > 128), None)
+                if existing:
+                    if existing != textured_obj:
+                        shutil.copy2(existing, textured_obj)
+                    texture_status.update({"success": True, "obj": str(textured_obj)})
+                    mtl_candidates = list(dense.glob("*.mtl"))
+                    texture_status["mtl_files"] = [p.name for p in mtl_candidates]
+                    texture_status["texture_files"] = [p.name for p in dense.glob("*.png")] + [p.name for p in dense.glob("*.jpg")]
+            except ReconstructionError as exc:
+                texture_status["error"] = str(exc)
+                (dense / "openmvs_texture.log").write_text(str(exc), errors="replace")
+        else:
+            texture_status["error"] = "未找到 TextureMesh；当前结果只能保证几何网格，不能声称具有真实纹理。"
+
         # Normalize OpenMVS outputs to the same API asset names used by COLMAP.
         normalized_mesh = dense / "mesh.ply"
         normalized_fused = dense / "fused.ply"
@@ -388,6 +431,7 @@ def run_colmap_mvs(images_dir: str | Path, output_dir: str | Path, *, executable
         mesh = normalized_mesh
         fused = normalized_fused
         method = "COLMAP SfM + OpenMVS depth-map fusion + mesh reconstruction"
+
     quality = inspect_mesh(mesh)
     return {
         "success": True,
@@ -400,5 +444,11 @@ def run_colmap_mvs(images_dir: str | Path, output_dir: str | Path, *, executable
         "mesh": str(mesh),
         "mesh_bytes": mesh.stat().st_size,
         "mesh_quality": quality,
-        "note": "网格已通过基础几何完整性检查；水密性、连通组件、真实纹理及目标身份仍须查看质量报告并在浏览器中人工确认。",
+        **({"texturing": texture_status} if method.endswith("mesh reconstruction") else {"texturing": {"available": False, "success": False, "note": "COLMAP native Poisson output is not UV-textured by this pipeline."}}),
+        "quality_checks": {
+            "geometry_valid": True,
+            "texture_baked": bool(method.endswith("mesh reconstruction") and texture_status.get("success")),
+            "textured_obj": str(dense / "scene_textured_mesh.obj") if method.endswith("mesh reconstruction") and texture_status.get("success") else None,
+        },
+        "note": "基础几何检查通过不代表照片级质量。请以 texturing.success、OBJ/MTL/贴图文件和实际预览为准；未成功贴图时不会报告彩色纹理模型。",
     }
