@@ -116,12 +116,31 @@ export function mergeAttributedVertices(mesh, tolerance = 1e-5, options = {}) {
   });
   for (const domain of ['face']) for (const [name, values] of Object.entries(mesh.attributes[domain])) mesh.attributes[domain][name]=keptIndices.map(i=>values[i]);
   for (const [name, values] of Object.entries(mesh.attributes.corner)) mesh.attributes.corner[name]=keptIndices.map(i=>values[i]);
+  // Remap edge-domain keys through the vertex merge map. Collapsed edges are
+  // removed; if multiple source edges collapse onto one edge with conflicting
+  // payloads, keep the first value but report the conflict instead of hiding it.
+  const edgeConflicts=[];
+  const remappedEdges={};
+  for (const [key,value] of Object.entries(mesh.attributes.edge)) {
+    const pair=key.split(',').map(Number);
+    if (pair.length!==2 || pair.some(i=>!Number.isInteger(i)||i<0||i>=map.length)) {
+      edgeConflicts.push(key); continue;
+    }
+    const a=map[pair[0]], b=map[pair[1]];
+    if (a===b) continue;
+    const newKey=edgeKey(a,b);
+    if (Object.prototype.hasOwnProperty.call(remappedEdges,newKey) && JSON.stringify(remappedEdges[newKey])!==JSON.stringify(value)) {
+      edgeConflicts.push(key); continue;
+    }
+    remappedEdges[newKey]=cloneValue(value);
+  }
+  mesh.attributes.edge=remappedEdges;
   const unsupported = Object.entries(mesh.attributes.custom).filter(([,v])=>v?.domain && !['vertex','face','corner','edge','object'].includes(v.domain)).map(([name])=>name);
   return {mesh, map, removedFaces, attributeReport:{
-    preserved:Object.keys(mesh.attributes.corner).concat(Object.keys(mesh.attributes.face)),
+    preserved:Object.keys(mesh.attributes.corner).concat(Object.keys(mesh.attributes.face),Object.keys(mesh.attributes.edge)),
     interpolated: options.vertexAttributePolicy==='average' ? keys : [],
     inherited: options.vertexAttributePolicy==='average' ? [] : keys,
-    regenerated:[], dropped:[], unsupported
+    regenerated:[], dropped:[], unsupported:unsupported.concat(edgeConflicts.map(key=>'edge:'+key))
   }};
 }
 
