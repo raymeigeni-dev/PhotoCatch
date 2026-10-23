@@ -135,6 +135,7 @@ def main():
     sidecar = output_path + ".repair-report.json"
     with open(sidecar, "w", encoding="utf-8") as f:
         json.dump({"input": input_path, "output": output_path, "objects": report,
+                   "self_intersections": {"status": "not_run", "count": None, "reason": "No independent triangle-triangle intersection detector is implemented; edge manifoldness is not a substitute."},
                    "warning": "Conservative BMesh operations; not a guarantee of repairing all self-intersections or arbitrary topology."},
                   f, ensure_ascii=False, indent=2)
     print("PHOTOCATCH_REPAIR_REPORT=" + json.dumps({"report": sidecar, "objects": len(report)}))
