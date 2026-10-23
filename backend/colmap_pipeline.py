@@ -154,26 +154,48 @@ def inspect_mesh(mesh_path: str | Path) -> dict[str, Any]:
         root = find(face_index)
         component_sizes[root] = component_sizes.get(root, 0) + 1
     component_count = len(component_sizes)
+    largest_component_faces = max(component_sizes.values(), default=0)
+    largest_component_ratio = float(largest_component_faces / len(faces))
+    # A high face count can hide a fragmented reconstruction. Report an explicit
+    # preview-quality gate rather than treating file creation as reconstruction success.
+    small_component_faces = sum(size for size in component_sizes.values()
+                                if size < max(10, int(len(faces) * 0.001)))
+    small_component_ratio = float(small_component_faces / len(faces))
+    has_vertex_colors = bool(
+        getattr(mesh.visual, "kind", None) == "vertex"
+        and getattr(mesh.visual, "vertex_colors", None) is not None
+        and len(getattr(mesh.visual, "vertex_colors", [])) == len(vertices)
+    )
+    textured = bool(getattr(mesh.visual, "kind", None) == "texture")
+    warnings = [
+        *(["网格不是水密封闭表面，存在孔洞或开放边界风险"] if not mesh.is_watertight else []),
+        *(["网格包含多个独立连通组件；需检查漂浮碎片"] if component_count > 1 else []),
+        *(["网格严重碎片化：独立组件过多或最大组件占比过低"] if component_count > 25 or largest_component_ratio < 0.70 else []),
+        *(["存在大量极小连通碎片，可能是漂浮噪声"] if small_component_ratio > 0.05 else []),
+        *(["输出不包含真实 UV 纹理贴图"] if not textured else []),
+        *(["输出没有有效顶点颜色"] if not has_vertex_colors else []),
+        "几何指标不能判断模型是否为正确目标；请在浏览器中人工核验",
+    ]
+    severe_fragmentation = component_count > 25 or largest_component_ratio < 0.70 or small_component_ratio > 0.05
+    appearance_available = textured or has_vertex_colors
     return {
         "vertices": int(len(vertices)),
         "faces": int(len(faces)),
         "duplicate_faces": duplicate_faces,
         "degenerate_faces": degenerate_faces,
         "connected_components": int(component_count),
-        "largest_component_face_ratio": round(float(max(component_sizes.values(), default=0) / len(faces)), 5),
+        "largest_component_face_ratio": round(largest_component_ratio, 5),
+        "small_component_face_ratio": round(small_component_ratio, 5),
+        "severe_fragmentation": bool(severe_fragmentation),
+        "preview_quality_pass": bool(not severe_fragmentation and appearance_available),
         "watertight": bool(mesh.is_watertight),
         "winding_consistent": bool(mesh.is_winding_consistent),
         "surface_area": round(float(areas.sum()), 6),
         "bounds": [[round(float(n), 6) for n in row] for row in bounds],
         "extent": [round(float(n), 6) for n in extent],
-        "has_vertex_colors": bool(getattr(mesh.visual, "kind", None) == "vertex" and getattr(mesh.visual, "vertex_colors", None) is not None),
-        "textured": bool(getattr(mesh.visual, "kind", None) == "texture"),
-        "warnings": [
-            *(["网格不是水密封闭表面，存在孔洞或开放边界风险"] if not mesh.is_watertight else []),
-            *(["网格包含多个独立连通组件；需检查漂浮碎片"] if component_count > 1 else []),
-            *(["输出不包含真实 UV 纹理贴图"] if getattr(mesh.visual, "kind", None) != "texture" else []),
-            "几何指标不能判断模型是否为正确目标；请在浏览器中人工核验",
-        ],
+        "has_vertex_colors": has_vertex_colors,
+        "textured": textured,
+        "warnings": warnings,
     }
 
 
