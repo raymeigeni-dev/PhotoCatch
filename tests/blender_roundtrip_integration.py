@@ -25,6 +25,20 @@ if TOOLS not in sys.path:
 from mesh_intersections import count_self_intersections
 
 
+def test_shared_vertex_crossing_policy():
+    # The triangles share vertex index 0, but intersect again away from that
+    # point. Default topology-aware mode excludes the pair; inclusive diagnostic
+    # mode must reveal it rather than silently hiding the crossing.
+    vertices = [(0,0,0), (2,0,0), (0,2,0), (0.5,0.5,-1), (0.5,0.5,1)]
+    faces = [(0,1,2), (0,3,4)]
+    conservative = count_self_intersections(vertices, faces)
+    inclusive = count_self_intersections(vertices, faces, include_adjacent=True)
+    assert conservative["status"] == "completed"
+    assert conservative["count"] == 0, "default shared-vertex adjacency policy changed"
+    assert inclusive["status"] == "completed"
+    assert inclusive["count"] == 1, "shared-vertex crossing beyond the shared point was missed"
+
+
 def fail(message):
     raise AssertionError(message)
 
@@ -117,6 +131,7 @@ def snapshot():
 
 
 def main():
+    test_shared_vertex_crossing_policy()
     repair_script = args()
     blender = bpy.app.binary_path
     with tempfile.TemporaryDirectory(prefix="photocatch-blender-it-") as tmp:
