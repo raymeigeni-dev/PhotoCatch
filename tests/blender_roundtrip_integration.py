@@ -45,9 +45,10 @@ def make_fixture():
 
     # Two triangles share positions but have distinct loop UVs at the shared
     # edge, deliberately exercising per-corner UV seam preservation.
-    verts = [(0,0,0),(1,0,0),(1,1,0),(0,1,0),(2,0,0),(2,1,0),(3,0,0),(4,0,0),(5,0,0),(6,0,0)]
+    verts = [(0,0,0),(1,0,0),(1,1,0),(0,1,0),(2,0,0),(2,1,0),(3,0,0),(4,0,0),(5,0,0),(6,0,0),
+             (0.2,0.2,-1),(0.2,0.2,1),(1.5,0.2,0)]
     # Three distinct collinear vertices make a valid-index but zero-area face.
-    faces = [(0,1,2),(0,2,3),(1,4,5),(1,5,2),(7,8,9)]
+    faces = [(0,1,2),(0,2,3),(1,4,5),(1,5,2),(7,8,9),(10,11,12)]
     mesh = bpy.data.meshes.new("UVSeamMesh")
     mesh.from_pydata(verts, [], faces)
     mesh.update()
@@ -61,7 +62,7 @@ def make_fixture():
     coords = [
       [(0,0),(1,0),(1,1)], [(0.2,0.2),(0.8,0.8),(0,1)],
       [(0,0),(1,0),(1,1)], [(0.1,0.1),(0.9,0.9),(0,1)],
-      [(0,0),(0,0),(0,0)]
+      [(0,0),(0,0),(0,0)], [(0.2,0.2),(0.2,0.8),(0.8,0.2)]
     ]
     for poly in mesh.polygons:
         for li, uvco in zip(poly.loop_indices, coords[poly.index]):
@@ -158,7 +159,12 @@ def main():
         assert "before" in metrics and "after" in metrics, "before/after metrics missing"
         assert metrics["before"].get("faces", 0) > metrics["after"].get("faces", 0), "degenerate face was not removed"
         assert metrics["after"].get("zero_area_faces", 0) == 0, "zero-area faces remain after repair"
-        assert report.get("self_intersections", {}).get("status") in ("not_run", "unsupported"), "self-intersection status must be explicit until independent detector is implemented"
+        intersections = report.get("self_intersections", {})
+        assert intersections.get("status") == "completed", "independent self-intersection detector did not run"
+        assert intersections.get("count_before", 0) >= 1, "fixture crossing triangle was not detected before repair"
+        assert intersections.get("count_after", -1) >= 1, "post-repair self-intersection count missing or unexpected"
+        assert metrics["before"].get("self_intersections", {}).get("status") == "completed"
+        assert metrics["after"].get("self_intersections", {}).get("status") == "completed"
 
         print("PHOTOCATCH_BLENDER_ROUNDTRIP=" + json.dumps({
             "status": "PASS",
@@ -169,7 +175,9 @@ def main():
             "material_indices": main_obj["material_indices"],
             "parent": post["Fixture_Child"]["parent"],
             "repair_report": report,
-            "note": "This test validates fixture round-trip attributes and basic BMesh metrics. It does not claim general self-intersection detection."
+            "self_intersections_before": intersections.get("count_before"),
+            "self_intersections_after": intersections.get("count_after"),
+            "note": "This test validates GLB round-trip attributes, topology metrics, and a known crossing-triangle self-intersection before/after repair."
         }, ensure_ascii=False))
     return 0
 
