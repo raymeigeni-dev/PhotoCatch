@@ -5,6 +5,9 @@ set -Eeuo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+# Include user-local OpenMVS binaries installed by scripts/install_openmvs_macos_arm64.sh.
+export PATH="${HOME}/.local/bin:${PATH}"
+
 BACKEND_PORT="${PHOTOCATCH_BACKEND_PORT:-5051}"
 FRONTEND_PORT="${PHOTOCATCH_FRONTEND_PORT:-8000}"
 PYTHON="${ROOT}/.venv/bin/python"
