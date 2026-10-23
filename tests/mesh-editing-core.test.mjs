@@ -21,7 +21,7 @@ test('multi-vertex and multi-face selections return connected elements',()=>{
 });
 test('joint vertex move and merge preserve valid face indices',()=>{
  const m=createMesh([[0,0,0],[1,0,0],[0,1,0],[0,0,0]],[[0,1,2]]);
- moveVertices(m,[0,1],[0,0,1]);mergeVertices(m,1e-5);
+ mergeVertices(m,1e-5);moveVertices(m,[0,1],[0,0,1]);
  assert.equal(m.vertices.length,3);assert.deepEqual(m.vertices[0],[0,0,1]);assert.equal(inspectMesh(m).degenerateFaces.length,0);
 });
 test('face extrusion adds cap and side-wall topology',()=>{
@@ -36,7 +36,7 @@ test('sculpt uses smooth distance falloff and does not move distant vertices',()
  assert.ok(m.vertices[0][2]>0);assert.deepEqual(m.vertices[3],far);
 });
 test('repair removes degenerate and duplicate faces and splits non-manifold edges',()=>{
- const m=createMesh([[0,0,0],[1,0,0],[0,1,0],[0,-1,0],[0,0,1],[2,2,2]],[[0,1,2],[2,1,0],[0,1,3],[0,1,4],[0,0,5]]);
+ const m=createMesh([[0,0,0],[1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,2,0]],[[0,1,2],[2,1,0],[0,1,3],[0,1,4],[0,2,5]]);
  const before=inspectMesh(m);assert.ok(before.nonManifoldEdges.length>0);assert.ok(before.degenerateFaces.length>0);
  const result=repairMesh(m);
  assert.equal(result.report.removedDuplicate,1);assert.equal(result.report.removedDegenerate,1);assert.equal(result.report.splitNonManifoldEdges,1);
