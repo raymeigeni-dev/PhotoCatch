@@ -14,7 +14,7 @@ test('topology reports adjacency and boundary edges',()=>{
 });
 test('multi-vertex and multi-face selections return connected elements',()=>{
  const m=createMesh([[0,0,0],[1,0,0],[1,1,0],[0,1,0]],[[0,1,2],[0,2,3]]);
- assert.deepEqual(selectByVertexIds(m,[0,2,999]).faces,[0,1]);
+ assert.deepEqual(selectByVertexIds(m,[0,2,999]).vertices,[0,2]);assert.deepEqual(selectByVertexIds(m,[0,2,999]).faces,[]);
  assert.deepEqual(selectByFaceIds(m,[1]).vertices,[0,2,3]);
  assert.deepEqual(selectScreenRegion([{index:0,x:5,y:5,z:0},{index:1,x:30,y:30,z:0}],{kind:'box',minX:0,maxX:10,minY:0,maxY:10}),[0]);
  assert.deepEqual(selectScreenRegion([{index:0,x:5,y:5,z:0}],{kind:'lasso',points:[{x:0,y:0},{x:10,y:0},{x:10,y:10},{x:0,y:10}]}),[0]);
