@@ -74,22 +74,29 @@ async function importFile(file){const ext=file.name.split('.').pop().toLowerCase
 function applyTransform(){if(!selected)return;setName(selected,$('#objName').value.trim()||'模型');selected.visible=$('#objVisible').checked;selected.position.set(+$('#px').value||0,+$('#py').value||0,+$('#pz').value||0);selected.rotation.set(THREE.MathUtils.degToRad(+$ ('#rx').value||0),THREE.MathUtils.degToRad(+$ ('#ry').value||0),THREE.MathUtils.degToRad(+$ ('#rz').value||0));selected.scale.set(Math.max(.001,+$('#sx').value||1),Math.max(.001,+$('#sy').value||1),Math.max(.001,+$('#sz').value||1));renderList();updateHud();notify('已应用变换')}
 function alignAxis(axis){if(!selected||objects.length<2)return;pushHistory();const target=boxOf(selected).getCenter(new THREE.Vector3())[axis];objects.filter(o=>o!==selected&&o.visible).forEach(o=>{const b=boxOf(o),c=b.getCenter(new THREE.Vector3());o.position[axis]+=target-c[axis]});updateInspector();updateHud();notify('已将其他可见对象沿 '+axis.toUpperCase()+' 轴对齐到活动模型中心')}
 function downloadBlob(blob,name){const a=document.createElement('a'),u=URL.createObjectURL(blob);a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),2000)}
-function addPrimitive(type){const geo=type==='box'?new THREE.BoxGeometry(1,1,1):type==='sphere'?new THREE.SphereGeometry(.5,32,20):new THREE.CylinderGeometry(.5,.5,1,32);const o=new THREE.Mesh(geo,new THREE.MeshStandardMaterial({color:0x79b8ff,roughness:.55}));o.position.y=.5;addObject(o,type==='box'?'新建方块':type==='sphere'?'新建球体':'新建圆柱');partSelectionMode=false;$('#selectPart').classList.remove('primary')}function setElementTool(mode,tool){elementMode=mode;selectionTool=tool;partSelectionMode=false;['faceMode','vertexMode','boxSelect','lassoSelect','brushSelect','polySelect'].forEach(id=>$('#'+id)?.classList.toggle('primary',({'faceMode':'face','vertexMode':'vertex','boxSelect':'box','lassoSelect':'lasso','brushSelect':'brush','polySelect':'polygon'})[id]===tool));notify('当前元素工具：'+tool)}$('#boxSelect').onclick=()=>{setElementTool('vertex','box');selectionPoints=[]};$('#lassoSelect').onclick=()=>{setElementTool('vertex','lasso');selectionPoints=[]};$('#brushSelect').onclick=()=>{setElementTool('vertex','brush');selectionPoints=[]};$('#polySelect').onclick=()=>{setElementTool('vertex','polygon');selectionPoints=[];notify('多边形选择：在视口连续点击添加边界点，双击完成')};$('#dragVertex').onclick=()=>{if(selectedVertex===null)return notify('请先选择一个顶点');selectionTool='dragVertex';notify('顶点拖拽工具已启用；请先保存副本')};function geometryToCore(g){const p=g.attributes.position;if(!p)throw new Error('网格没有顶点位置');const m=g.index?fromIndexedGeometry(p.array,g.index.array):fromTriangleSoup(p.array);return mergeVertices(m,1e-5)}function coreToGeometry(mesh,old){
-  // Safety invariant: this topology core currently emits position-only triangle soup.
-  // Never replace a geometry carrying UVs, tangents, colors, skinning/morph/custom
-  // attributes, draw ranges, or material groups with a lossy reconstruction.
+function addPrimitive(type){const geo=type==='box'?new THREE.BoxGeometry(1,1,1):type==='sphere'?new THREE.SphereGeometry(.5,32,20):new THREE.CylinderGeometry(.5,.5,1,32);const o=new THREE.Mesh(geo,new THREE.MeshStandardMaterial({color:0x79b8ff,roughness:.55}));o.position.y=.5;addObject(o,type==='box'?'新建方块':type==='sphere'?'新建球体':'新建圆柱');partSelectionMode=false;$('#selectPart').classList.remove('primary')}function setElementTool(mode,tool){elementMode=mode;selectionTool=tool;partSelectionMode=false;['faceMode','vertexMode','boxSelect','lassoSelect','brushSelect','polySelect'].forEach(id=>$('#'+id)?.classList.toggle('primary',({'faceMode':'face','vertexMode':'vertex','boxSelect':'box','lassoSelect':'lasso','brushSelect':'brush','polySelect':'polygon'})[id]===tool));notify('当前元素工具：'+tool)}$('#boxSelect').onclick=()=>{setElementTool('vertex','box');selectionPoints=[]};$('#lassoSelect').onclick=()=>{setElementTool('vertex','lasso');selectionPoints=[]};$('#brushSelect').onclick=()=>{setElementTool('vertex','brush');selectionPoints=[]};$('#polySelect').onclick=()=>{setElementTool('vertex','polygon');selectionPoints=[];notify('多边形选择：在视口连续点击添加边界点，双击完成')};$('#dragVertex').onclick=()=>{if(selectedVertex===null)return notify('请先选择一个顶点');selectionTool='dragVertex';notify('顶点拖拽工具已启用；请先保存副本')};function assertTopologyEditable(g){
+  // This core currently round-trips only positions and recomputed normals. Reject
+  // unsupported geometry BEFORE welding vertices or mutating a temporary mesh.
   const supported=new Set(['position','normal']);
-  const extra=Object.keys(old.attributes||{}).filter(name=>!supported.has(name));
-  const hasGroups=Array.isArray(old.groups)&&old.groups.length>0;
-  const hasMorph=Object.keys(old.morphAttributes||{}).some(k=>(old.morphAttributes[k]||[]).length>0);
-  if(extra.length||hasGroups||hasMorph||old.hasAttribute?.('skinIndex')||old.hasAttribute?.('skinWeight')){
+  const extra=Object.keys(g.attributes||{}).filter(name=>!supported.has(name));
+  const hasGroups=Array.isArray(g.groups)&&g.groups.length>0;
+  const hasMorph=Object.keys(g.morphAttributes||{}).some(k=>(g.morphAttributes[k]||[]).length>0);
+  const hasSkin=g.hasAttribute?.('skinIndex')||g.hasAttribute?.('skinWeight');
+  const dr=g.drawRange||{start:0,count:Infinity};
+  const positionCount=g.attributes?.position?.count||0;
+  const hasPartialDrawRange=dr.start!==0 || (Number.isFinite(dr.count)&&dr.count<positionCount);
+  if(extra.length||hasGroups||hasMorph||hasSkin||hasPartialDrawRange){
     const reasons=[];
     if(extra.length)reasons.push('属性: '+extra.join(', '));
     if(hasGroups)reasons.push('材质分组');
     if(hasMorph)reasons.push('形态键');
-    if(old.hasAttribute?.('skinIndex')||old.hasAttribute?.('skinWeight'))reasons.push('骨骼蒙皮');
-    throw new Error('为防止数据丢失，已阻止此网格的破坏性编辑（'+reasons.join('；')+'）。当前编辑核心尚不支持无损迁移这些数据；原网格未被替换。');
+    if(hasSkin)reasons.push('骨骼蒙皮');
+    if(hasPartialDrawRange)reasons.push('非完整绘制范围');
+    throw new Error('为防止数据丢失，已阻止此网格的拓扑编辑（'+reasons.join('；')+'）。当前编辑核心尚不支持无损迁移这些数据；原网格未被替换。');
   }
+}
+function geometryToCore(g){assertTopologyEditable(g);const p=g.attributes.position;if(!p)throw new Error('网格没有顶点位置');const m=g.index?fromIndexedGeometry(p.array,g.index.array):fromTriangleSoup(p.array);return mergeVertices(m,1e-5)}function coreToGeometry(mesh,old){
+  assertTopologyEditable(old);
   const ng=new THREE.BufferGeometry();
   ng.setAttribute('position',new THREE.BufferAttribute(toTriangleSoup(mesh),3));
   ng.computeVertexNormals();
