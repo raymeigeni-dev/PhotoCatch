@@ -1,0 +1,18 @@
+name: Mesh editing core tests
+on:
+  push:
+    branches:
+      - feat/3d-model-workspace-2026-10-23
+  pull_request:
+    branches:
+      - fix/reconstruction-quality-gates-2026-10-23
+jobs:
+  mesh-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test topology and editing operations
+        run: node --experimental-default-type=module --test tests/mesh-editing-core.test.mjs
