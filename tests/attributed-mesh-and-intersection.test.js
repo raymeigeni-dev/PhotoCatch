@@ -37,7 +37,7 @@ test('adjacent triangles are excluded by documented default policy',()=>{
 });
 
 test('shared-vertex triangles can still be tested for a crossing beyond the shared point',()=>{
- const m={vertices:[[0,0,0],[2,0,0],[0,2,0],[0,0,0],[0.5,0.5,-1],[0.5,0.5,1]],faces:[[0,1,2],[3,4,5]]};
+ const m={vertices:[[0,0,0],[2,0,0],[0,2,0],[0.5,0.5,-1],[0.5,0.5,1]],faces:[[0,1,2],[0,3,4]]};
  assert.equal(detectSelfIntersections(m).count,0,'documented conservative default excludes shared-vertex pairs');
  const inclusive=detectSelfIntersections(m,{includeAdjacent:true});
  assert.equal(inclusive.status,'completed');
