@@ -1,3 +1,4 @@
+import { moveAttributedVertices, mergeAttributedVertices, deleteAttributedFaces, extrudeAttributedFaces, rebuildAttributedFace } from './attributed-mesh-core.js';
 /**
  * PhotoCatch mesh editing core.
  * Pure data operations; vertices are [x,y,z], faces are arrays of vertex indices.
@@ -51,16 +52,28 @@ export function selectScreenRegion(projected, region) {
   const inside=(p,pts)=>{let yes=false;for(let i=0,j=pts.length-1;i<pts.length;j=i++){const a=pts[i],b=pts[j];if(((a.y>p.y)!==(b.y>p.y))&&p.x<(b.x-a.x)*(p.y-a.y)/(b.y-a.y)+a.x)yes=!yes}return yes};
   return projected.filter(p=>{if(p.z < -1||p.z>1)return false;if(region.kind==='box')return p.x>=region.minX&&p.x<=region.maxX&&p.y>=region.minY&&p.y<=region.maxY;if(region.kind==='brush')return Math.hypot(p.x-region.x,p.y-region.y)<=region.radius;return (region.kind==='lasso'||region.kind==='polygon')&&region.points.length>=3&&inside(p,region.points)}).map(p=>p.index);
 }
-export function moveVertices(mesh, ids, delta) { validateMesh(mesh);for(const i of ids){if(!mesh.vertices[i])continue;mesh.vertices[i]=mesh.vertices[i].map((v,k)=>v+(+delta[k]||0))}return mesh; }
-export function mergeVertices(mesh, tolerance=1e-5) {
-  validateMesh(mesh);const out=[],map=[],bins=new Map();
+export function moveVertices(mesh, ids, delta) {
+  validateMesh(mesh);
+  if (mesh.attributes) { const result=moveAttributedVertices(mesh,ids,delta); mesh.lastAttributeReport=result.attributeReport; return mesh; }
+  for(const i of ids){if(!mesh.vertices[i])continue;mesh.vertices[i]=mesh.vertices[i].map((v,k)=>v+(+delta[k]||0))}
+  return mesh;
+}
+export function mergeVertices(mesh, tolerance=1e-5, options={}) {
+  validateMesh(mesh);
+  if (mesh.attributes) { const result=mergeAttributedVertices(mesh,tolerance,options); mesh.lastAttributeReport=result.attributeReport; mesh.lastVertexMergeMap=result.map; mesh.lastRemovedFaces=result.removedFaces; return mesh; }
+  const out=[],map=[],bins=new Map();
   for(const v of mesh.vertices){const k=v.map(x=>Math.round(x/Math.max(tolerance,EPS))).join(',');let id=bins.get(k);if(id===undefined){id=out.length;out.push(v.slice());bins.set(k,id)}map.push(id)}
   const faces=[];for(const f of mesh.faces){const nf=f.map(i=>map[i]).filter((v,i,a)=>i===0||v!==a[i-1]);if(nf.length>2&&nf[0]===nf[nf.length-1])nf.pop();if(new Set(nf).size>=3)faces.push(nf)}
   mesh.vertices=out;mesh.faces=faces;return mesh;
 }
-export function deleteFaces(mesh, ids) { const remove=new Set(ids);mesh.faces=mesh.faces.filter((_,i)=>!remove.has(i));return mesh; }
+export function deleteFaces(mesh, ids) {
+  if (mesh?.attributes) { const result=deleteAttributedFaces(mesh,ids); mesh.lastAttributeReport=result.attributeReport; return mesh; }
+  const remove=new Set(ids);mesh.faces=mesh.faces.filter((_,i)=>!remove.has(i));return mesh;
+}
 export function extrudeFaces(mesh, ids, distance=0.1) {
-  validateMesh(mesh);const chosen=[...new Set(ids)].filter(i=>i>=0&&i<mesh.faces.length);if(!chosen.length)return mesh;
+  validateMesh(mesh);
+  if (mesh.attributes) { const result=extrudeAttributedFaces(mesh,ids,distance); mesh.lastAttributeReport=result.attributeReport; return mesh; }
+  const chosen=[...new Set(ids)].filter(i=>i>=0&&i<mesh.faces.length);if(!chosen.length)return mesh;
   const topo=buildTopology(mesh),selected=new Set(chosen),boundary=new Map();
   for(const fi of chosen){const f=mesh.faces[fi];for(let i=0;i<f.length;i++){const a=f[i],b=f[(i+1)%f.length],e=topo.edgeMap.get(keyEdge(a,b));if(e.faces.length===1||!e.faces.every(x=>selected.has(x))){const k=keyEdge(a,b);if(!boundary.has(k))boundary.set(k,{a,b})}}}
   const normals=mesh.vertices.map(()=>[0,0,0]);
@@ -69,6 +82,13 @@ export function extrudeFaces(mesh, ids, distance=0.1) {
   const oldFaces=mesh.faces.filter((_,i)=>!selected.has(i));const caps=chosen.map(fi=>mesh.faces[fi].map(id=>newIds.get(id)));
   const sides=[];for(const {a,b} of boundary.values()){const A=newIds.get(a),B=newIds.get(b);sides.push([a,b,B],[a,B,A])}
   mesh.faces=[...oldFaces,...caps,...sides];return mesh;
+}
+/** Rebuild a face on an attributed mesh using explicit source-corner mapping. */
+export function rebuildFace(mesh, vertices, options={}) {
+  if (!mesh?.attributes) throw new TypeError('rebuildFace requires an attributed mesh');
+  const result=rebuildAttributedFace(mesh,vertices,options);
+  mesh.lastAttributeReport=result.attributeReport;
+  return mesh;
 }
 export function sculpt(mesh, center, radius, strength, mode='push', selectedIds=null) {
   validateMesh(mesh);if(radius<=0)return mesh;const allow=selectedIds?new Set(selectedIds):null;
