@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PhotoCatch · 视频重建测试台</title>
+<style>
+:root{color-scheme:dark;--bg:#101318;--panel:#1a2029;--line:#303946;--text:#edf2f7;--muted:#aab6c5;--accent:#75b7ff;--good:#72d6a0;--bad:#ff8e8e}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+main{max-width:1000px;margin:auto;padding:28px 18px 60px}h1{font-size:28px;margin:0 0 6px}h2{font-size:18px;margin:0 0 12px}.sub,.muted{color:var(--muted)}.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;margin:16px 0}
+label{display:block;font-weight:600;margin-bottom:8px}input[type=file]{display:block;width:100%;padding:12px;background:#111720;border:1px dashed #556274;border-radius:9px;color:var(--muted)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}.engine{border:1px solid var(--line);border-radius:11px;padding:15px;display:flex;flex-direction:column;gap:10px}.engine p{margin:0;color:var(--muted);font-size:14px;flex:1}
+button,.link{display:inline-block;border:0;border-radius:9px;background:var(--accent);color:#07111d;padding:10px 14px;font-weight:700;cursor:pointer;text-decoration:none}button:disabled{opacity:.5;cursor:wait}.secondary{background:#303b49;color:var(--text)}
+.status{padding:10px 12px;border-radius:9px;background:#111720;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere}.good{color:var(--good)}.bad{color:var(--bad)}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#0d1117;border-radius:9px;padding:12px;max-height:360px;overflow:auto;font-size:12px}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.small{font-size:12px}.engine-state{font-size:12px;color:var(--muted)}a{color:var(--accent)}@media(max-width:500px){main{padding:18px 12px}h1{font-size:23px}}
+</style>
+</head>
+<body><main>
+<h1>PhotoCatch 视频重建测试台</h1>
+<div class="sub">手动选择真实视频，逐条验证本机重建引擎。这里展示真实 API 返回，不会把“提交成功”当作“模型已生成”。</div>
+<section class="panel">
+<label for="video">1. 选择测试视频（例如 IMG_0096.MOV）</label>
+<input id="video" type="file" accept="video/*,.mov,.mp4,.m4v,.avi,.mkv,.webm">
+<div class="small muted">视频只上传到你当前配置的本地 PhotoCatch 后端；后端会删除上传原件和抽帧图像。Apple 生成的 USDZ 会保留在本机项目的实例目录，供下载检查。</div>
+<div class="actions"><button id="refresh" class="secondary">刷新引擎状态</button><span id="health" class="status">正在检查后端…</span></div>
+</section>
+<section class="panel"><h2>2. 引擎状态</h2><div id="engines" class="grid"><div class="status">正在读取…</div></div></section>
+<section class="panel"><h2>3. 手动运行</h2><div class="grid">
+<div class="engine"><h2>Apple Object Capture</h2><p>Mac 原生 RealityKit 摄影测量，输出 USDZ。不需要 NVIDIA CUDA；需要先编译原生 helper，且素材需满足重建条件。</p><button data-engine="apple">运行苹果原生重建</button><span class="engine-state">POST /api/video/reconstruct/apple</span></div>
+<div class="engine"><h2>COLMAP / OpenMVS</h2><p>运行已有的多视角重建入口；在没有 CUDA 的 Mac 上，只有 OpenMVS CPU 工具实际可用时才可能完成稠密重建。</p><button data-engine="local">运行本地重建</button><span class="engine-state">POST /api/video/reconstruct</span></div>
+<div class="engine"><h2>云端网关</h2><p>仅在你配置了云端 HTTP 网关及凭据后可用。当前代码是适配器，不是开箱即用的 RealityCapture 连接。</p><button data-engine="cloud">提交云端任务</button><span class="engine-state">POST /api/video/reconstruct/cloud</span></div>
+</div></section>
+<section class="panel"><h2>4. 运行结果</h2><div id="status" class="status">选择视频后点击某个引擎。</div><div id="assets" class="actions"></div><details><summary>查看完整 API 响应</summary><pre id="response">{}</pre></details></section>
+</main>
+<script>
+(function(){
+const q=s=>document.querySelector(s), api=new URLSearchParams(location.search).get('api')||'http://127.0.0.1:5051';
+const url=p=>api.replace(/\/$/,'')+p;
+function showStatus(s,ok){q('#status').textContent=s;q('#status').className='status '+(ok===true?'good':ok===false?'bad':'')}
+function showJSON(x){q('#response').textContent=JSON.stringify(x,null,2)}
+async function jsonFetch(path,opts){const r=await fetch(url(path),opts);let data;try{data=await r.json()}catch{data={error:'服务器返回的不是 JSON'}}if(!r.ok)throw Object.assign(new Error(data.error||('HTTP '+r.status)),{data,status:r.status});return data}
+async function refresh(){q('#health').textContent='检查中…';try{await jsonFetch('/api/health');q('#health').textContent='后端连接正常：'+api;q('#health').className='status good';const d=await jsonFetch('/api/reconstruction/engines');q('#engines').innerHTML=d.engines.map(e=>'<div class="engine"><strong>'+esc(e.id)+'</strong><span class="engine-state '+(e.ready||e.configured?'good':'bad')+'">'+(e.ready||e.configured?'已配置/可执行':'尚未就绪')+'</span><p>'+esc(e.note||e.message||'')+'</p><div class="small muted">'+esc(JSON.stringify(e))+'</div></div>').join('');showJSON(d)}catch(e){q('#health').textContent='连接失败：'+e.message;q('#health').className='status bad';q('#engines').innerHTML='<div class="status bad">无法读取引擎状态。确认后端已启动，并检查端口设置。</div>';showJSON(e.data||{error:e.message})}}
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function asset(label,href){const a=document.createElement('a');a.className='link';a.href=href;a.textContent=label;a.target='_blank';a.rel='noopener';q('#assets').appendChild(a)}
+async function run(engine){const file=q('#video').files[0];if(!file){showStatus('请先选择视频文件。',false);return}
+q('#assets').innerHTML='';const buttons=[...document.querySelectorAll('button[data-engine]')];buttons.forEach(b=>b.disabled=true);
+showStatus('正在上传并运行 '+engine+'。真实重建可能需要较长时间，请保持窗口打开。');showJSON({engine,filename:file.name,size:file.size,api});
+const form=new FormData();form.append('video',file,file.name);
+try{
+let data;
+if(engine==='apple'){data=await jsonFetch('/api/video/reconstruct/apple',{method:'POST',body:form});showStatus('苹果原生重建接口返回成功。请下载 USDZ 并人工检查纹理、完整度和比例。',true);if(data.model_url)asset('下载 USDZ',url(data.model_url));}
+else if(engine==='local'){data=await jsonFetch('/api/video/reconstruct',{method:'POST',body:form});showStatus('本地重建接口返回成功。请打开网格资产并核验是否为目标物体、纹理是否真实。',true);if(data.mesh_url)asset('打开 PLY 网格',url(data.mesh_url));if(data.point_cloud_url)asset('打开点云 PLY',url(data.point_cloud_url));if(data.texturing&&data.texturing.url)asset('打开纹理 OBJ',url(data.texturing.url));}
+else {data=await jsonFetch('/api/video/reconstruct/cloud',{method:'POST',body:form});showStatus('云端任务已提交，不代表模型已经生成。正在轮询状态…');showJSON(data);if(data.status_url){let finalData=data;for(let i=0;i<180;i++){await new Promise(r=>setTimeout(r,5000));finalData=await jsonFetch(data.status_url);showJSON({submission:data,status:finalData});if(['succeeded','failed','cancelled','canceled'].includes(String(finalData.status||'').toLowerCase()))break;}data={submission:data,status:finalData};if(String(finalData.status||'').toLowerCase()==='succeeded'&&data.submission.cloud_job_id){const result=await jsonFetch('/api/video/reconstruct/cloud/'+encodeURIComponent(data.submission.cloud_job_id)+'/result');data.result_manifest=result;showStatus('云端任务完成；返回的是资产清单。当前适配器不会自动把模型下载到 Mac，请检查清单中的资产地址。',true)}else showStatus('云端任务最终状态：'+(finalData.status||'未知')+'。',false)}}
+showJSON(data);
+}catch(e){showStatus('运行失败：'+e.message+'。请展开 API 响应查看错误详情。',false);showJSON(e.data||{error:e.message,status:e.status||null})}
+finally{buttons.forEach(b=>b.disabled=false)}
+}
+q('#refresh').addEventListener('click',refresh);document.querySelectorAll('button[data-engine]').forEach(b=>b.addEventListener('click',()=>run(b.dataset.engine)));refresh();
+})();
+</script></body></html>

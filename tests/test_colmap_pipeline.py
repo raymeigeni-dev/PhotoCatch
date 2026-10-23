@@ -53,6 +53,27 @@ def test_mesh_quality_reports_watertight_cube(tmp_path):
     assert report["duplicate_faces"] == 0
     assert report["degenerate_faces"] == 0
     assert report["connected_components"] == 1
+    # A geometrically valid but monochrome mesh is not a complete appearance asset.
+    assert report["preview_quality_pass"] is False
+    assert report["has_vertex_colors"] is False
+    assert report["textured"] is False
+
+
+def test_mesh_quality_fails_preview_gate_for_severe_fragmentation(tmp_path):
+    first = trimesh.creation.box()
+    second = trimesh.creation.box()
+    second.apply_translation([3, 0, 0])
+    combined = trimesh.util.concatenate([first, second])
+    path = tmp_path / "fragmented.ply"
+    combined.export(path)
+
+    report = inspect_mesh(path)
+
+    assert report["connected_components"] == 2
+    assert report["severe_fragmentation"] is True
+    assert report["preview_quality_pass"] is False
+    assert report["largest_component_face_ratio"] == 0.5
+    assert any("严重碎片化" in warning for warning in report["warnings"])
 
 
 def test_mesh_quality_rejects_duplicate_faces(tmp_path):

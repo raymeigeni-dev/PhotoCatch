@@ -1,8 +1,17 @@
-# PhotoCatch — 摄像头检测与实验性 3D 网格预览
+# PhotoCatch — 实验性多视角 3D 重建与网格质量检查
 
-PhotoCatch 是一个本地运行的实验性原型：通过摄像头抓取单帧，调用本地 Flask 后端检测候选区域，再把选中区域的二维轮廓沿深度方向挤出为三角网格，并在浏览器中交互预览。
+PhotoCatch 是一个本地运行的实验性原型，包含两条不同能力的流程：摄像头单帧检测/二维轮廓挤出，以及从视频抽帧后尝试 COLMAP/OpenMVS 多视角摄影测量。两者不能混为一谈；单帧挤出不是实物扫描，多视角流程生成网格也不代表几何、颜色或纹理已完整还原。
 
 > **能力边界：** 当前检测器基于 MediaPipe Hands、Pose 与 Selfie Segmentation，并非通用物体检测器。代码中的检测 confidence 数值目前是固定常量，不是经过校准的模型置信度，不能用于严肃的准确率判断。当前 3D 算法是单张图像的轮廓挤出，不是多视角摄影测量，也不会恢复真实背面、真实深度或可靠的物理尺寸。结果适用于原型验证，不应宣传为完整的真实物体 3D 扫描。
+
+
+## 多引擎重建（本分支新增）
+
+- `GET /api/reconstruction/engines`：查看 OpenMVS、Apple Object Capture 和云端网关的实际配置状态。
+- OpenMVS 路线：在 Mac 上通过 `InterfaceCOLMAP`、`DensifyPointCloud`、`ReconstructMesh` 执行 CPU 稠密重建；若安装 `RefineMesh` 会尝试细化，若安装 `TextureMesh` 会尝试 UV 纹理烘焙。响应中的 `texturing.success` 才是是否发现纹理 OBJ 的信号；未成功时不能把 PLY 当作照片级彩色模型。
+- Apple Object Capture：已有 `POST /api/video/reconstruct/apple` 视频接口，依赖编译好的原生 helper；必须在目标 Mac 上真实测试，代码存在不代表可用。
+- 云端：`POST /api/video/reconstruct/cloud` 提交任务，`GET /api/video/reconstruct/cloud/<job_id>` 轮询，`GET /api/video/reconstruct/cloud/<job_id>/result` 读取结果清单。它是可配置的 HTTP 网关适配器，不是直接开箱即用的 RealityCapture 官方连接；需配置 `PHOTOCATCH_CLOUD_API_BASE_URL` 和 `PHOTOCATCH_CLOUD_API_TOKEN`。
+- 云端资产清单目前不会自动下载到 Mac；云端任务成功也不代表模型质量已验收。
 
 ## 当前功能
 
@@ -53,6 +62,22 @@ http://127.0.0.1:8000/frontend/index.html
 
 导入视频后，先在“重建模式”中选择普通视频或 360°全景，再点击“提取多帧并评估”。360°模式要求设备官方软件导出的完整、接近 2:1 的等距柱状投影文件。初检通过时可点击“运行 COLMAP 多视角重建”；该过程要求已安装 COLMAP，可能消耗较多 CPU、内存和磁盘空间。COLMAP 的稠密 PatchMatch 若因缺少 CUDA 失败，会在检测到 OpenMVS 命令行工具时尝试 CPU SGM 备选流程；否则会明确报错并保留已完成的稀疏重建，不会伪造完整网格。摄像头单帧检测仍可用于原型试验，但它不是多视角重建。后端地址默认是 `http://127.0.0.1:5000`。如需指定其他 API 地址，可在 URL 中加入 `?api=http://127.0.0.1:5001`（仅限可信的本地服务）。
 
+## Apple RealityKit Object Capture（新增实验性原生工具）
+
+PhotoCatch 提供一个实验性的苹果原生 RealityKit Object Capture 后端，并已接入 Flask 视频 API 与手动测试窗口。该路线仍需在目标 Mac 上编译原生 helper 并用真实视频验收；代码集成不代表已经验证重建质量。
+
+原生 Swift 工具位于 `native/apple-object-capture/`，使用 macOS 的 `PhotogrammetrySession` 将一组多视角照片重建为 USDZ。它会先检查 `PhotogrammetrySession.isSupported`，并以 JSON 输出支持状态、输入图像数和输出文件大小。视频仍需先抽取清晰、角度有差异的图像；工具不会直接把 MOV 当作照片目录。
+
+在装有 Xcode Command Line Tools 的受支持 Mac 上，从仓库根目录运行：
+
+```bash
+cd native/apple-object-capture
+swift build -c release
+swift run -c release photocatch-apple-capture /absolute/path/to/job/images /absolute/path/to/job/model.usdz
+```
+
+启动脚本会尝试执行 `swift build -c release` 编译 helper；如果编译失败，其他路线仍可启动，测试窗口会显示 Apple 引擎不可用。当前尚未在目标 Mac 上实机编译或使用 `IMG_0096.MOV` 验收。iPhone LiDAR 的引导式采集是独立的后续 iOS 伴随应用工作，不等同于 Mac 端重建。
+
 ## 自动化测试
 
 ```bash
@@ -86,5 +111,5 @@ python -m pytest -q
 - 真实视频/真实物体的重建质量验收仍依赖实际运行 COLMAP/OpenMVS 的素材、计算环境和人工检查；输入初检指标只是启发式，不保证模型完整或可辨认。
 - 360°全景路径已过滤同一源帧的虚拟视图匹配，但尚未向 COLMAP 注入已知的虚拟相机相对旋转/rig frame 约束；不能把它视为已完成的严谨全景摄影测量。
 - OpenMVS CPU SGM 路径增加了 `scene.mvs`、`scene_dense.mvs`、`scene_dense.ply` 和网格输出检查，并将产物规范化为 API 使用的 `mesh.ply` / `fused.ply`；Mac 上是否可用仍取决于实际安装的 OpenMVS 构建和真实素材。
-- 输出目前为 PLY 网格/点云；当前 COLMAP Poisson 流程不生成真实 UV 纹理贴图，UI 会明确显示这一点。网格检查可以报告水密性、连通组件和退化面，但不能自动判断目标身份或视觉逼真程度；真实素材、浏览器 E2E、孔洞/碎片人工验收和尺度恢复仍需后续完成。
+- 输出目前为 PLY 网格/点云；当前流程不生成真实 UV 纹理贴图，且输出未必包含顶点颜色，因此白色/单色模型是当前管线的能力限制，不是通过调整渲染颜色就能修复的问题。高保真外观需要新增纹理重建/贴图流程，并通过真实素材验证。网格检查可以报告水密性、连通组件和退化面，但不能自动判断目标身份或视觉逼真程度；真实素材、浏览器 E2E、孔洞/碎片人工验收和尺度恢复仍需后续完成。
 - GLB/GLTF 导出、设置持久化和设备兼容性测试。

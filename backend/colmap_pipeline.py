@@ -154,26 +154,48 @@ def inspect_mesh(mesh_path: str | Path) -> dict[str, Any]:
         root = find(face_index)
         component_sizes[root] = component_sizes.get(root, 0) + 1
     component_count = len(component_sizes)
+    largest_component_faces = max(component_sizes.values(), default=0)
+    largest_component_ratio = float(largest_component_faces / len(faces))
+    # A high face count can hide a fragmented reconstruction. Report an explicit
+    # preview-quality gate rather than treating file creation as reconstruction success.
+    small_component_faces = sum(size for size in component_sizes.values()
+                                if size < max(10, int(len(faces) * 0.001)))
+    small_component_ratio = float(small_component_faces / len(faces))
+    has_vertex_colors = bool(
+        getattr(mesh.visual, "kind", None) == "vertex"
+        and getattr(mesh.visual, "vertex_colors", None) is not None
+        and len(getattr(mesh.visual, "vertex_colors", [])) == len(vertices)
+    )
+    textured = bool(getattr(mesh.visual, "kind", None) == "texture")
+    warnings = [
+        *(["网格不是水密封闭表面，存在孔洞或开放边界风险"] if not mesh.is_watertight else []),
+        *(["网格包含多个独立连通组件；需检查漂浮碎片"] if component_count > 1 else []),
+        *(["网格严重碎片化：独立组件过多或最大组件占比过低"] if component_count > 25 or largest_component_ratio < 0.70 else []),
+        *(["存在大量极小连通碎片，可能是漂浮噪声"] if small_component_ratio > 0.05 else []),
+        *(["输出不包含真实 UV 纹理贴图"] if not textured else []),
+        *(["输出没有有效顶点颜色"] if not has_vertex_colors else []),
+        "几何指标不能判断模型是否为正确目标；请在浏览器中人工核验",
+    ]
+    severe_fragmentation = component_count > 25 or largest_component_ratio < 0.70 or small_component_ratio > 0.05
+    appearance_available = textured or has_vertex_colors
     return {
         "vertices": int(len(vertices)),
         "faces": int(len(faces)),
         "duplicate_faces": duplicate_faces,
         "degenerate_faces": degenerate_faces,
         "connected_components": int(component_count),
-        "largest_component_face_ratio": round(float(max(component_sizes.values(), default=0) / len(faces)), 5),
+        "largest_component_face_ratio": round(largest_component_ratio, 5),
+        "small_component_face_ratio": round(small_component_ratio, 5),
+        "severe_fragmentation": bool(severe_fragmentation),
+        "preview_quality_pass": bool(not severe_fragmentation and appearance_available),
         "watertight": bool(mesh.is_watertight),
         "winding_consistent": bool(mesh.is_winding_consistent),
         "surface_area": round(float(areas.sum()), 6),
         "bounds": [[round(float(n), 6) for n in row] for row in bounds],
         "extent": [round(float(n), 6) for n in extent],
-        "has_vertex_colors": bool(getattr(mesh.visual, "kind", None) == "vertex" and getattr(mesh.visual, "vertex_colors", None) is not None),
-        "textured": bool(getattr(mesh.visual, "kind", None) == "texture"),
-        "warnings": [
-            *(["网格不是水密封闭表面，存在孔洞或开放边界风险"] if not mesh.is_watertight else []),
-            *(["网格包含多个独立连通组件；需检查漂浮碎片"] if component_count > 1 else []),
-            *(["输出不包含真实 UV 纹理贴图"] if getattr(mesh.visual, "kind", None) != "texture" else []),
-            "几何指标不能判断模型是否为正确目标；请在浏览器中人工核验",
-        ],
+        "has_vertex_colors": has_vertex_colors,
+        "textured": textured,
+        "warnings": warnings,
     }
 
 
@@ -277,6 +299,7 @@ def run_colmap_mvs(images_dir: str | Path, output_dir: str | Path, *, executable
     fused = dense / "fused.ply"
     mesh = dense / "mesh.ply"
     method = "COLMAP SfM + MVS + Poisson meshing"
+    texture_status: dict[str, Any] = {"available": False, "success": False, "note": "COLMAP Poisson output is not UV-textured by this pipeline."}
     try:
         _run([binary, "patch_match_stereo", "--workspace_path", str(dense), "--workspace_format", "COLMAP",
               "--PatchMatchStereo.geom_consistency", "true"], "MVS 深度估计", timeout=7200)
@@ -358,6 +381,49 @@ def run_colmap_mvs(images_dir: str | Path, output_dir: str | Path, *, executable
         openmvs_mesh = dense / "scene_dense_mesh.ply"
         if not openmvs_mesh.is_file() or openmvs_mesh.stat().st_size < 128:
             raise ReconstructionError("OpenMVS 未生成预期的 scene_dense_mesh.ply；请查看 OpenMVS 的 LOG 文件")
+
+        # Refine geometry before texturing when the optional OpenMVS tools exist.
+        refine = shutil.which("RefineMesh")
+        if refine:
+            try:
+                _run([refine, str(dense_scene), "-m", str(openmvs_mesh), "-o",
+                      str(dense / "scene_dense_mesh_refine.mvs")],
+                     "OpenMVS 网格细化", timeout=7200, cwd=dense)
+            except ReconstructionError as exc:
+                # Refinement is optional; preserve the valid raw mesh and report the limitation.
+                (dense / "openmvs_refine.log").write_text(str(exc), errors="replace")
+
+        # TextureMesh is the critical missing stage for colored, photorealistic assets.
+        # OpenMVS CLI output naming differs slightly across packaged builds, so discover
+        # the actual OBJ/MTL/texture artifacts after running the supported scene input.
+        texture = shutil.which("TextureMesh")
+        textured_obj = dense / "scene_textured_mesh.obj"
+        texture_status = {"available": bool(texture), "success": False}
+        if texture:
+            try:
+                texture_log = _run(
+                    [texture, str(dense_scene), "--export-type", "obj"],
+                    "OpenMVS 真实纹理贴图", timeout=7200, cwd=dense,
+                )
+                (dense / "openmvs_texture.log").write_text(texture_log, errors="replace")
+                candidates = [textured_obj, dense / "scene_dense_mesh_texture.obj",
+                              dense / "scene_dense_mesh_refine_texture.obj"]
+                existing = next((p for p in candidates if p.is_file() and p.stat().st_size > 128), None)
+                if existing is None:
+                    existing = next((p for p in dense.glob("*.obj") if p.is_file() and p.stat().st_size > 128), None)
+                if existing:
+                    if existing != textured_obj:
+                        shutil.copy2(existing, textured_obj)
+                    texture_status.update({"success": True, "obj": str(textured_obj)})
+                    mtl_candidates = list(dense.glob("*.mtl"))
+                    texture_status["mtl_files"] = [p.name for p in mtl_candidates]
+                    texture_status["texture_files"] = [p.name for p in dense.glob("*.png")] + [p.name for p in dense.glob("*.jpg")]
+            except ReconstructionError as exc:
+                texture_status["error"] = str(exc)
+                (dense / "openmvs_texture.log").write_text(str(exc), errors="replace")
+        else:
+            texture_status["error"] = "未找到 TextureMesh；当前结果只能保证几何网格，不能声称具有真实纹理。"
+
         # Normalize OpenMVS outputs to the same API asset names used by COLMAP.
         normalized_mesh = dense / "mesh.ply"
         normalized_fused = dense / "fused.ply"
@@ -366,6 +432,7 @@ def run_colmap_mvs(images_dir: str | Path, output_dir: str | Path, *, executable
         mesh = normalized_mesh
         fused = normalized_fused
         method = "COLMAP SfM + OpenMVS depth-map fusion + mesh reconstruction"
+
     quality = inspect_mesh(mesh)
     return {
         "success": True,
@@ -378,5 +445,11 @@ def run_colmap_mvs(images_dir: str | Path, output_dir: str | Path, *, executable
         "mesh": str(mesh),
         "mesh_bytes": mesh.stat().st_size,
         "mesh_quality": quality,
-        "note": "网格已通过基础几何完整性检查；水密性、连通组件、真实纹理及目标身份仍须查看质量报告并在浏览器中人工确认。",
+        **({"texturing": texture_status} if method.endswith("mesh reconstruction") else {"texturing": {"available": False, "success": False, "note": "COLMAP native Poisson output is not UV-textured by this pipeline."}}),
+        "quality_checks": {
+            "geometry_valid": True,
+            "texture_baked": bool(method.endswith("mesh reconstruction") and texture_status.get("success")),
+            "textured_obj": str(dense / "scene_textured_mesh.obj") if method.endswith("mesh reconstruction") and texture_status.get("success") else None,
+        },
+        "note": "基础几何检查通过不代表照片级质量。请以 texturing.success、OBJ/MTL/贴图文件和实际预览为准；未成功贴图时不会报告彩色纹理模型。",
     }
