@@ -45,8 +45,9 @@ def make_fixture():
 
     # Two triangles share positions but have distinct loop UVs at the shared
     # edge, deliberately exercising per-corner UV seam preservation.
-    verts = [(0,0,0),(1,0,0),(1,1,0),(0,1,0),(2,0,0),(2,1,0),(3,0,0)]
-    faces = [(0,1,2),(0,2,3),(1,4,5),(1,5,2),(0,0,6)]
+    verts = [(0,0,0),(1,0,0),(1,1,0),(0,1,0),(2,0,0),(2,1,0),(3,0,0),(4,0,0),(5,0,0),(6,0,0)]
+    # Three distinct collinear vertices make a valid-index but zero-area face.
+    faces = [(0,1,2),(0,2,3),(1,4,5),(1,5,2),(7,8,9)]
     mesh = bpy.data.meshes.new("UVSeamMesh")
     mesh.from_pydata(verts, [], faces)
     mesh.update()
@@ -151,6 +152,13 @@ def main():
         assert set(main_obj["material_indices"]) >= {0, 1}, "material assignments lost after round-trip"
         assert main_obj["uv_samples"] == pre["Fixture_Main"]["uv_samples"], "sampled UV coordinates changed"
         assert report.get("objects"), "repair report contains no mesh objects"
+        repair_items = {item.get("object"): item for item in report["objects"]}
+        assert "Fixture_Main" in repair_items, "main mesh metrics missing from report"
+        metrics = repair_items["Fixture_Main"]
+        assert "before" in metrics and "after" in metrics, "before/after metrics missing"
+        assert metrics["before"].get("faces", 0) > metrics["after"].get("faces", 0), "degenerate face was not removed"
+        assert metrics["after"].get("zero_area_faces", 0) == 0, "zero-area faces remain after repair"
+        assert report.get("self_intersections", {}).get("status") in ("not_run", "unsupported"), "self-intersection status must be explicit until independent detector is implemented"
 
         print("PHOTOCATCH_BLENDER_ROUNDTRIP=" + json.dumps({
             "status": "PASS",
