@@ -76,3 +76,24 @@ def get_job(job_id: str) -> dict[str, Any]:
     if not isinstance(data, dict) or data.get("status") not in {"queued", "running", "succeeded", "failed"}:
         raise CloudReconstructionError("云端网关返回了无效任务状态。")
     return {"success": True, "engine": "cloud-http-adapter", "cloud_job_id": job_id, **data}
+
+
+def get_result(job_id: str) -> dict[str, Any]:
+    """Fetch the provider's result manifest; actual asset URLs remain provider-owned."""
+    if not job_id or len(job_id) > 200 or any(ch not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_." for ch in job_id):
+        raise CloudReconstructionError("云端 job_id 格式无效。")
+    base, headers = _config()
+    try:
+        response = requests.get(urljoin(base, f"jobs/{job_id}/result"), headers=headers, timeout=60)
+        response.raise_for_status()
+        data = response.json()
+    except (requests.RequestException, ValueError) as exc:
+        raise CloudReconstructionError(f"读取云端结果清单失败：{exc}") from exc
+    if not isinstance(data, dict):
+        raise CloudReconstructionError("云端结果清单必须是 JSON 对象。")
+    urls = data.get("assets")
+    if not isinstance(urls, (list, dict)):
+        raise CloudReconstructionError("云端结果清单缺少 assets；不能声称已取得模型文件。")
+    return {"success": True, "engine": "cloud-http-adapter", "cloud_job_id": job_id,
+            "result_manifest": data, "assets_downloaded_locally": False,
+            "note": "已读取云端结果清单；资产 URL 仍由服务商提供，尚未下载到本机。"}
