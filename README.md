@@ -4,6 +4,15 @@ PhotoCatch 是一个本地运行的实验性原型，包含两条不同能力的
 
 > **能力边界：** 当前检测器基于 MediaPipe Hands、Pose 与 Selfie Segmentation，并非通用物体检测器。代码中的检测 confidence 数值目前是固定常量，不是经过校准的模型置信度，不能用于严肃的准确率判断。当前 3D 算法是单张图像的轮廓挤出，不是多视角摄影测量，也不会恢复真实背面、真实深度或可靠的物理尺寸。结果适用于原型验证，不应宣传为完整的真实物体 3D 扫描。
 
+
+## 多引擎重建（本分支新增）
+
+- `GET /api/reconstruction/engines`：查看 OpenMVS、Apple Object Capture 和云端网关的实际配置状态。
+- OpenMVS 路线：在 Mac 上通过 `InterfaceCOLMAP`、`DensifyPointCloud`、`ReconstructMesh` 执行 CPU 稠密重建；若安装 `RefineMesh` 会尝试细化，若安装 `TextureMesh` 会尝试 UV 纹理烘焙。响应中的 `texturing.success` 才是是否发现纹理 OBJ 的信号；未成功时不能把 PLY 当作照片级彩色模型。
+- Apple Object Capture：已有 `POST /api/video/reconstruct/apple` 视频接口，依赖编译好的原生 helper；必须在目标 Mac 上真实测试，代码存在不代表可用。
+- 云端：`POST /api/video/reconstruct/cloud` 提交任务，`GET /api/video/reconstruct/cloud/<job_id>` 轮询，`GET /api/video/reconstruct/cloud/<job_id>/result` 读取结果清单。它是可配置的 HTTP 网关适配器，不是直接开箱即用的 RealityCapture 官方连接；需配置 `PHOTOCATCH_CLOUD_API_BASE_URL` 和 `PHOTOCATCH_CLOUD_API_TOKEN`。
+- 云端资产清单目前不会自动下载到 Mac；云端任务成功也不代表模型质量已验收。
+
 ## 当前功能
 
 - 本地 Flask API：健康检查、候选区域检测、ROI 网格生成。
