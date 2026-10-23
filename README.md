@@ -64,7 +64,7 @@ http://127.0.0.1:8000/frontend/index.html
 
 ## Apple RealityKit Object Capture（新增实验性原生工具）
 
-PhotoCatch 正在评估苹果官方 RealityKit Object Capture 作为额外重建后端。集成方案和验收标准见 [Apple Object Capture 集成计划](docs/apple-object-capture-integration-plan.md)。
+PhotoCatch 提供一个实验性的苹果原生 RealityKit Object Capture 后端，并已接入 Flask 视频 API 与手动测试窗口。该路线仍需在目标 Mac 上编译原生 helper 并用真实视频验收；代码集成不代表已经验证重建质量。
 
 原生 Swift 工具位于 `native/apple-object-capture/`，使用 macOS 的 `PhotogrammetrySession` 将一组多视角照片重建为 USDZ。它会先检查 `PhotogrammetrySession.isSupported`，并以 JSON 输出支持状态、输入图像数和输出文件大小。视频仍需先抽取清晰、角度有差异的图像；工具不会直接把 MOV 当作照片目录。
 
@@ -76,7 +76,7 @@ swift build -c release
 swift run -c release photocatch-apple-capture /absolute/path/to/job/images /absolute/path/to/job/model.usdz
 ```
 
-注意：这只是独立原生工具，尚未接入 Flask 视频重建 API，也未在目标 Mac 上实机编译或使用 `IMG_0096.MOV` 验收。不要将该工具的存在描述为苹果重建已在 PhotoCatch 中可用。iPhone LiDAR 的引导式采集是独立的后续 iOS 伴随应用工作，不等同于 Mac 端重建。
+启动脚本会尝试执行 `swift build -c release` 编译 helper；如果编译失败，其他路线仍可启动，测试窗口会显示 Apple 引擎不可用。当前尚未在目标 Mac 上实机编译或使用 `IMG_0096.MOV` 验收。iPhone LiDAR 的引导式采集是独立的后续 iOS 伴随应用工作，不等同于 Mac 端重建。
 
 ## 自动化测试
 
