@@ -299,6 +299,7 @@ def run_colmap_mvs(images_dir: str | Path, output_dir: str | Path, *, executable
     fused = dense / "fused.ply"
     mesh = dense / "mesh.ply"
     method = "COLMAP SfM + MVS + Poisson meshing"
+    texture_status: dict[str, Any] = {"available": False, "success": False, "note": "COLMAP Poisson output is not UV-textured by this pipeline."}
     try:
         _run([binary, "patch_match_stereo", "--workspace_path", str(dense), "--workspace_format", "COLMAP",
               "--PatchMatchStereo.geom_consistency", "true"], "MVS 深度估计", timeout=7200)
