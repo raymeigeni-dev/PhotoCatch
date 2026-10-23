@@ -43,3 +43,10 @@ test('shared-vertex triangles can still be tested for a crossing beyond the shar
  assert.equal(inclusive.status,'completed');
  assert.equal(inclusive.count,1,'opt-in inclusive mode must detect intersection beyond the shared vertex');
 });
+
+test('edge attributes are remapped when merged vertices collapse edge keys',()=>{
+ const m=createAttributedMesh({vertices:[[0,0,0],[1,0,0],[1.000001,0,0],[0,1,0]],faces:[[0,1,3],[0,2,3]],attributes:{edge:{'1,3':{crease:0.5},'2,3':{crease:0.5}}}});
+ mergeAttributedVertices(m,1e-4);
+ assert.equal(m.vertices.length,3);
+ assert.deepEqual(m.attributes.edge['1,2'],{crease:0.5});
+});
