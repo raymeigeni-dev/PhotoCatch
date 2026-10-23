@@ -73,6 +73,10 @@ def make_fixture():
     mesh = bpy.data.meshes.new("UVSeamMesh")
     mesh.from_pydata(verts, [], faces)
     mesh.update()
+    # Point-domain vertex colors must survive GLB export -> repair -> import.
+    color_attr = mesh.color_attributes.new(name="FixtureColor", type="FLOAT_COLOR", domain="POINT")
+    for i, item in enumerate(color_attr.data):
+        item.color = (0.15 + (i % 3) * 0.2, 0.25 + (i % 2) * 0.3, 0.65, 1.0)
     obj = bpy.data.objects.new("Fixture_Main", mesh)
     bpy.context.collection.objects.link(obj)
     mesh.materials.append(mat_a)
@@ -120,6 +124,9 @@ def snapshot():
             entry["materials"] = [m.name for m in mesh.materials]
             entry["material_indices"] = sorted(set(p.material_index for p in mesh.polygons))
             entry["uv_layers"] = [layer.name for layer in mesh.uv_layers]
+            entry["color_attributes"] = [attr.name for attr in mesh.color_attributes]
+            color_attr = mesh.color_attributes.get("FixtureColor")
+            entry["color_samples"] = [tuple(round(float(v), 4) for v in color_attr.data[i].color) for i in range(min(3, len(color_attr.data)))] if color_attr else []
             entry["uv_loop_count"] = len(mesh.uv_layers[0].data) if mesh.uv_layers else 0
             entry["uv_samples"] = [
                 tuple(round(float(v), 5) for v in mesh.uv_layers[0].data[i].uv)
@@ -183,6 +190,10 @@ def main():
         assert len(main_obj["materials"]) == 2, "material slots lost after round-trip"
         assert set(main_obj["material_indices"]) >= {0, 1}, "material assignments lost after round-trip"
         assert main_obj["uv_samples"] == pre["Fixture_Main"]["uv_samples"], "sampled UV coordinates changed"
+        assert "FixtureColor" in main_obj["color_attributes"], "vertex color attribute lost after round-trip"
+        assert len(main_obj["color_samples"]) == len(pre["Fixture_Main"]["color_samples"]), "vertex color samples missing after round-trip"
+        for actual, expected in zip(main_obj["color_samples"], pre["Fixture_Main"]["color_samples"]):
+            assert all(abs(a-b) < 2e-2 for a,b in zip(actual,expected)), "vertex color values changed: %s -> %s" % (expected, actual)
         assert report.get("objects"), "repair report contains no mesh objects"
         repair_items = {item.get("object"): item for item in report["objects"]}
         assert "Fixture_Main" in repair_items, "main mesh metrics missing from report"
