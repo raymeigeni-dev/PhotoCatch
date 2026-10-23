@@ -55,8 +55,12 @@ def _hit(a,b,e):
         if _segment_triangle(a[i],a[(i+1)%3],b,e) or _segment_triangle(b[i],b[(i+1)%3],a,e): return True
     return False
 
-def count_self_intersections(vertices, faces, epsilon=1e-8):
-    """Return stable face-pair counts and policy metadata for triangulated faces."""
+def count_self_intersections(vertices, faces, epsilon=1e-8, include_adjacent=False):
+    """Return stable face-pair counts; optionally test pairs sharing vertex indices.
+
+    Default counts exclude expected topological adjacency. Set include_adjacent=True
+    for diagnostic runs that must reveal crossings beyond a shared vertex/edge.
+    """
     triangles=[]
     for face_index, face in enumerate(faces):
         # Blender mesh polygons may be n-gons; triangulate as a fan for diagnostics.
@@ -73,13 +77,13 @@ def count_self_intersections(vertices, faces, epsilon=1e-8):
         active=[j for j in active if triangles[j]["max"][0]>=t["min"][0]-epsilon]
         for j in active:
             u=triangles[j]
-            if set(t["ids"]) & set(u["ids"]): continue
+            if not include_adjacent and set(t["ids"]) & set(u["ids"]): continue
             if any(t["min"][k]>u["max"][k]+epsilon or u["min"][k]>t["max"][k]+epsilon for k in (1,2)): continue
             if _hit(t["p"],u["p"],epsilon) and t["face"] != u["face"]:
                 pairs.add(tuple(sorted((t["face"],u["face"]))))
         active.append(idx)
     return {"status":"completed","count":len(pairs),"pairs":[list(p) for p in sorted(pairs)],
-            "policy":{"epsilon_model_units":epsilon,"adjacency":"skip triangle pairs sharing vertex indices",
+            "policy":{"epsilon_model_units":epsilon,"adjacency":"tested" if include_adjacent else "skip triangle pairs sharing vertex indices",
                       "coplanar":"dominant-axis 2D overlap/touch counts as intersection",
                       "degenerate_triangles":"excluded","broad_phase":"x-axis AABB sweep + 3D AABB",
                       "narrow_phase":"segment-triangle + coplanar 2D overlap"}}
