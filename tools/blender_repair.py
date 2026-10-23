@@ -14,6 +14,7 @@ import json
 import os
 import sys
 from mathutils import Vector
+from mesh_intersections import count_self_intersections
 
 
 def arguments():
@@ -74,6 +75,10 @@ def repair_mesh_object(obj, report, merge_distance=1e-5, hole_sides=0):
         "non_manifold_edges": sum(1 for e in bm.edges if not e.is_manifold),
     }
     item = {"object": obj.name, "before": before, "operations": []}
+    # Independent triangle-triangle count on the original topology.
+    item["before"]["self_intersections"] = count_self_intersections(
+        [tuple(v.co) for v in bm.verts], [tuple(v.index for v in f.verts) for f in bm.faces]
+    )
 
     # Remove only near-coincident vertices within a small explicit tolerance.
     bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=merge_distance)
@@ -115,6 +120,9 @@ def repair_mesh_object(obj, report, merge_distance=1e-5, hole_sides=0):
         "boundary_edges": sum(1 for e in bm_check.edges if e.is_boundary),
         "non_manifold_edges": sum(1 for e in bm_check.edges if not e.is_manifold),
         "zero_area_faces": sum(1 for f in bm_check.faces if f.calc_area() <= 1e-12),
+        "self_intersections": count_self_intersections(
+            [tuple(v.co) for v in bm_check.verts], [tuple(v.index for v in f.verts) for f in bm_check.faces]
+        ),
     }
     bm_check.free()
     report.append(item)
@@ -135,7 +143,7 @@ def main():
     sidecar = output_path + ".repair-report.json"
     with open(sidecar, "w", encoding="utf-8") as f:
         json.dump({"input": input_path, "output": output_path, "objects": report,
-                   "self_intersections": {"status": "not_run", "count": None, "reason": "No independent triangle-triangle intersection detector is implemented; edge manifoldness is not a substitute."},
+                   "self_intersections": {"status": "completed", "count_before": sum(x["before"]["self_intersections"]["count"] for x in report), "count_after": sum(x["after"]["self_intersections"]["count"] for x in report), "per_object": [{"object": x["object"], "before": x["before"]["self_intersections"], "after": x["after"]["self_intersections"]} for x in report], "policy": "Independent AABB sweep and triangle-triangle narrow phase; shared-vertex adjacency excluded."},
                    "warning": "Conservative BMesh operations; not a guarantee of repairing all self-intersections or arbitrary topology."},
                   f, ensure_ascii=False, indent=2)
     print("PHOTOCATCH_REPAIR_REPORT=" + json.dumps({"report": sidecar, "objects": len(report)}))
