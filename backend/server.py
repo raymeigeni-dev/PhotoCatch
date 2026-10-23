@@ -268,10 +268,15 @@ def reconstruct_uploaded_video_apple():
     images_dir = root / 'apple-images'
     upload_path = root / ('upload' + suffix)
     output_path = root / 'apple-object-capture.usdz'
+    stage = 'prepare_job'
+    report = None
+    saved = 0
     try:
         root.mkdir(parents=True, exist_ok=False)
         images_dir.mkdir(parents=True, exist_ok=False)
+        stage = 'save_upload'
         upload.save(upload_path)
+        stage = 'analyze_video'
         report = analyze_video(str(upload_path), max_frames=48, max_dimension=1600)
         # The heuristic preflight is advisory, not a hard gate for Apple's native
         # Object Capture. It can reject valid captures due to ORB/F-matrix heuristics
@@ -284,10 +289,10 @@ def reconstruct_uploaded_video_apple():
                 '原生引擎将尝试重建，仍可能因视角覆盖、模糊或纹理不足而失败。'
             )
             report['apple_preflight_override'] = True
+        stage = 'decode_and_extract_frames'
         cap = cv2.VideoCapture(str(upload_path))
         if not cap.isOpened():
-            return jsonify({'success': False, 'error': '无法解码上传视频'}), 422
-        saved = 0
+            return jsonify({'success': False, 'stage': stage, 'error': '无法解码上传视频', 'job_id': job_id, 'input_analysis': report}), 422
         try:
             count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
             positions = np.unique(np.linspace(0, max(0, count - 1), num=min(48, count), dtype=int))
@@ -306,20 +311,25 @@ def reconstruct_uploaded_video_apple():
         finally:
             cap.release()
         if saved < 3:
-            return jsonify({'success': False, 'error': f'有效图像仅 {saved} 张，至少需要 3 张。', 'job_id': job_id}), 422
+            return jsonify({'success': False, 'stage': stage, 'error': f'有效图像仅 {saved} 张，至少需要 3 张。', 'job_id': job_id, 'input_images': saved, 'input_analysis': report}), 422
+        stage = 'apple_native_reconstruction'
         result = run_apple_capture(images_dir, output_path, timeout_seconds=int(os.getenv('PHOTOCATCH_APPLE_TIMEOUT', '7200')))
+        stage = 'verify_native_output'
         result.update({
-            'job_id': job_id, 'input_images': saved, 'input_analysis': report,
+            'stage': stage, 'job_id': job_id, 'input_images': saved, 'input_analysis': report,
             'model_url': f'/api/video/apple-models/{job_id}',
             'message': '苹果原生重建完成；请检查 USDZ 的完整度、纹理和比例后再判定质量。',
         })
         return jsonify(result)
     except AppleCaptureError as exc:
-        logger.warning("Apple Object Capture failed: %s", exc)
-        return jsonify({'success': False, 'error': str(exc), 'job_id': job_id}), 422
-    except Exception:
-        logger.exception("Apple Object Capture endpoint failed")
-        return jsonify({'success': False, 'error': '苹果原生重建失败；请检查后端日志。', 'job_id': job_id}), 500
+        logger.warning("Apple Object Capture failed at stage=%s job=%s: %s", stage, job_id, exc)
+        return jsonify({'success': False, 'stage': stage, 'error': str(exc), 'job_id': job_id,
+                        'input_images': saved, 'input_analysis': report}), 422
+    except Exception as exc:
+        logger.exception("Apple Object Capture endpoint failed at stage=%s job=%s", stage, job_id)
+        return jsonify({'success': False, 'stage': stage,
+                        'error': '苹果原生重建失败；请检查后端日志。', 'detail': str(exc)[:1500],
+                        'job_id': job_id, 'input_images': saved, 'input_analysis': report}), 500
     finally:
         # Retain the generated USDZ and diagnostics, but never retain the uploaded original or sampled frames.
         upload_path.unlink(missing_ok=True)
