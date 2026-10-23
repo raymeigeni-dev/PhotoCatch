@@ -57,7 +57,7 @@ def _validate_openmvs_scene_image_paths(scene_path: str | Path, image_dir: str |
     raw = scene.read_bytes()
     # Paths in the binary scene are NUL-terminated; limit matching to printable
     # ASCII so the validator itself remains safe for binary input.
-    embedded = re.findall(rb'/[ -~]{1,512}/images/frame_[A-Za-z0-9_.-]+\\.(?:jpg|jpeg|png)', raw, flags=re.IGNORECASE)
+    embedded = re.findall(rb'/[ -~]{1,512}/images/frame_[A-Za-z0-9_.-]+\.(?:jpg|jpeg|png)', raw, flags=re.IGNORECASE)
     stale = []
     for encoded in embedded:
         try:
