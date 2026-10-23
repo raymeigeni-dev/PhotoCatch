@@ -18,7 +18,7 @@ try:
     from backend.colmap_pipeline import run_colmap_mvs, ReconstructionError
     from backend.panorama import equirectangular_to_perspective_views, is_equirectangular
     from backend.apple_object_capture import run_apple_capture, AppleCaptureError
-    from backend.cloud_reconstruction import cloud_provider_status, submit_video, get_job, CloudReconstructionError
+    from backend.cloud_reconstruction import cloud_provider_status, submit_video, get_job, get_result, CloudReconstructionError
 except ModuleNotFoundError:
     # Also support the documented "python backend/server.py" launch command.
     from detector import ObjectDetector
@@ -114,6 +114,14 @@ def poll_cloud_reconstruction(cloud_job_id):
             result["quality_verified"] = False
             result["note"] = "云端任务成功状态尚未验证下载文件、纹理、几何和视觉质量。"
         return jsonify(result)
+    except CloudReconstructionError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 502
+
+
+@app.route('/api/video/reconstruct/cloud/<cloud_job_id>/result', methods=['GET'])
+def get_cloud_reconstruction_result(cloud_job_id):
+    try:
+        return jsonify(get_result(cloud_job_id))
     except CloudReconstructionError as exc:
         return jsonify({"success": False, "error": str(exc)}), 502
 
