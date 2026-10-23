@@ -48,6 +48,13 @@ struct PhotoCatchAppleCapture {
         let architecture = "unknown"
         #endif
 
+        guard #available(macOS 13.0, *) else {
+            emit(ProbeResult(ok: false, supported: false, macOSVersion: versionString,
+                architecture: architecture, inputDirectory: nil, imageCount: nil,
+                outputPath: nil, outputBytes: nil,
+                error: "Apple Object Capture requires macOS 13.0 or newer."), exitCode: 2)
+        }
+
         guard PhotogrammetrySession.isSupported else {
             emit(ProbeResult(ok: false, supported: false, macOSVersion: versionString,
                 architecture: architecture, inputDirectory: nil, imageCount: nil,
