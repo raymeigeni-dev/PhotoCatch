@@ -28,31 +28,22 @@ BIN="$ROOT/native/apple-object-capture/.build/release/photocatch-apple-capture"
 
 echo
 echo "== 2/4 Probe native capability =="
-PROBE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/photocatch-apple-probe.XXXXXX")"
-trap 'rm -rf "$PROBE_DIR"' EXIT
-mkdir -p "$PROBE_DIR/images"
-# A blank image is only used to safely trigger a capability probe; it is not a reconstruction test.
-python3 - "$PROBE_DIR/images/probe.jpg" <<'PY'
-import sys
-try:
-    import cv2
-    import numpy as np
-    cv2.imwrite(sys.argv[1], np.full((128, 128, 3), 127, dtype=np.uint8))
-except Exception as e:
-    print("Could not create probe image:", e, file=sys.stderr)
-    raise SystemExit(1)
-PY
+# The helper emits a JSON capability report when invoked without arguments.
+# Its expected usage exit code is non-zero; do not attempt reconstruction on a blank image.
 set +e
-"$BIN" "$PROBE_DIR/images" "$PROBE_DIR/probe.usdz" > "$PROBE_DIR/probe.json" 2>&1
+PROBE_OUTPUT="$("$BIN" 2>&1)"
 PROBE_RC=$?
 set -e
-cat "$PROBE_DIR/probe.json"
-if [[ "$PROBE_RC" -eq 2 ]]; then
+printf '%s\n' "$PROBE_OUTPUT"
+if grep -q '"supported":false' <<<"$PROBE_OUTPUT"; then
   echo "BLOCKED: PhotogrammetrySession reports unsupported on this Mac."
   exit 4
 fi
+if ! grep -q '"supported":true' <<<"$PROBE_OUTPUT"; then
+  echo "FAIL: could not confirm native Object Capture support (exit $PROBE_RC)."
+  exit 4
+fi
 
-echo
 echo "== 3/4 Verify backend route and health =="
 BASE_URL="${PHOTOCATCH_BASE_URL:-http://127.0.0.1:5000}"
 if ! curl --silent --show-error --fail "$BASE_URL/api/health"; then
