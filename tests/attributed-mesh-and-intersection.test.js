@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createAttributedMesh, mergeAttributedVertices, deleteAttributedFaces, extrudeAttributedFaces, rebuildAttributedFace, attributeAudit} from '../frontend/attributed-mesh-core.js';
 import {detectSelfIntersections} from '../frontend/self-intersection.js';
+import {moveVertices, mergeVertices as legacyMergeVertices, deleteFaces as legacyDeleteFaces, extrudeFaces as legacyExtrudeFaces, rebuildFace} from '../frontend/mesh-editing-core.js';
 
 test('corner UVs survive geometric vertex merge across a UV seam',()=>{
  const m=createAttributedMesh({vertices:[[0,0,0],[1,0,0],[0,1,0],[1,0,0],[1,1,0],[0,1,0]],faces:[[0,1,2],[3,4,5]],materialSlots:['red','blue'],attributes:{corner:{uv:[[[0,0],[1,0],[0,1]],[[0.25,0],[1,1],[0.25,1]]],splitNormal:[[[0,0,1],[0,0,1],[0,0,1]],[[0,1,0],[0,1,0],[0,1,0]]]},face:{materialIndex:[0,1]},vertex:{color:[[1,0,0],[1,0,0],[1,0,0],[1,0,0],[1,0,0],[1,0,0]],skinWeights:[{root:1},{root:1},{root:1},{root:1},{root:1},{root:1}]}}});
@@ -49,4 +50,26 @@ test('edge attributes are remapped when merged vertices collapse edge keys',()=>
  mergeAttributedVertices(m,1e-4);
  assert.equal(m.vertices.length,3);
  assert.deepEqual(m.attributes.edge['1,2'],{crease:0.5});
+});
+
+
+test('legacy topology API dispatches to attribute-aware operations without dropping domains',()=>{
+ const m=createAttributedMesh({vertices:[[0,0,0],[1,0,0],[0,1,0],[1,0,0]],faces:[[0,1,2]],materialSlots:['mat'],attributes:{vertex:{color:[[1,0,0],[0,1,0],[0,0,1],[0,1,0]],skinWeights:[{root:1},{root:1},{root:1},{root:1}]},face:{materialIndex:[0]},corner:{uv:[[[0,0],[1,0],[0,1]]]}}});
+ moveVertices(m,[0],[0,0,0.1]);
+ assert.equal(m.lastAttributeReport.dropped.length,0);
+ legacyMergeVertices(m,1e-6,{vertexAttributePolicy:'first'});
+ assert.ok(m.attributes.vertex.color.length===m.vertices.length);
+ assert.ok(m.attributes.vertex.skinWeights.length===m.vertices.length);
+ assert.equal(m.attributes.corner.uv.length,m.faces.length);
+ assert.ok(m.lastAttributeReport);
+ const second=createAttributedMesh({vertices:[[0,0,0],[1,0,0],[0,1,0],[1,1,0]],faces:[[0,1,2],[1,3,2]],attributes:{face:{materialIndex:[1,2]},corner:{uv:[[[0,0],[1,0],[0,1]],[[1,0],[1,1],[0,1]]]}}});
+ legacyDeleteFaces(second,[0]);
+ assert.deepEqual(second.attributes.face.materialIndex,[2]);
+ legacyExtrudeFaces(second,[0],0.25);
+ assert.ok(second.faces.length>1);
+ assert.equal(second.attributes.face.materialIndex.length,second.faces.length);
+ const source=createAttributedMesh({vertices:[[0,0,0],[1,0,0],[0,1,0],[1,1,0]],faces:[[0,1,2]],attributes:{face:{materialIndex:[7]},corner:{uv:[[[0,0],[1,0],[0,1]]]}}});
+ rebuildFace(source,[1,3,2],{sourceFace:0,sourceCorners:[1,1,2]});
+ assert.deepEqual(source.attributes.face.materialIndex,[7,7]);
+ assert.equal(source.attributes.corner.uv[1].length,3);
 });
