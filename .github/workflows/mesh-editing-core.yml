@@ -15,4 +15,4 @@ jobs:
         with:
           node-version: 22
       - name: Test topology and editing operations
-        run: node --experimental-default-type=module --test tests/mesh-editing-core.test.mjs
+        run: node --experimental-default-type=module --test tests/mesh-editing-core.test.mjs tests/workspace-contract.test.mjs
