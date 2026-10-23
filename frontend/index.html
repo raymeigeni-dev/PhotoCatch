@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111827">
+  <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+  <title>PhotoCatch · 实验性 3D 捕捉</title>
+  <style>
+    :root{color-scheme:dark;--bg:#0b1020;--panel:#121a2c;--line:#27334a;--text:#e8edf7;--muted:#9aa8bf;--accent:#8b9cff;--good:#71d7a5;--bad:#ff9a9a}
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top,#17223a,var(--bg) 65%);color:var(--text);font:15px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    header{padding:22px clamp(16px,4vw,48px);border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+    h1{font-size:clamp(22px,3vw,30px);margin:0;letter-spacing:-.04em}header p{color:var(--muted);margin:4px 0 0}.status{font-size:13px;color:var(--muted)}
+    main{display:grid;grid-template-columns:minmax(300px,1fr) minmax(300px,1fr);gap:18px;padding:20px clamp(12px,3vw,36px);max-width:1500px;margin:auto}
+    .panel{background:rgba(18,26,44,.92);border:1px solid var(--line);border-radius:18px;overflow:hidden;min-width:0}.panel h2{font-size:16px;margin:0;padding:16px 18px;border-bottom:1px solid var(--line)}
+    .content{padding:16px;display:grid;gap:12px}.video-wrap,#viewer{background:#050812;border:1px solid var(--line);border-radius:12px;overflow:hidden;position:relative;min-height:260px;aspect-ratio:4/3}
+    video{display:block;width:100%;height:100%;object-fit:contain;position:absolute;inset:0}#capture{display:none}
+    #viewer canvas{display:block;width:100%;height:100%;touch-action:none}.placeholder{position:absolute;inset:0;display:grid;place-items:center;padding:24px;text-align:center;color:var(--muted)}
+    .actions{display:flex;flex-wrap:wrap;gap:8px}button{border:1px solid #3a4865;background:#202c44;color:var(--text);border-radius:10px;padding:10px 13px;font:inherit;cursor:pointer}button.primary{background:#5368d9;border-color:#7183ef}button:disabled{opacity:.45;cursor:not-allowed}button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+    .hint{font-size:13px;color:var(--muted);margin:0}.message{border-radius:10px;padding:10px 12px;background:#1b263c;color:var(--muted);font-size:13px;overflow-wrap:anywhere;white-space:pre-line}.message[data-kind=good]{color:var(--good)}.message[data-kind=bad]{color:var(--bad)}
+    #detections{display:grid;gap:8px}.detection{display:flex;justify-content:space-between;align-items:center;gap:12px;text-align:left}.detection[aria-pressed=true]{border-color:var(--accent);background:#29345a}.detection small{color:var(--muted)}.metrics{display:flex;flex-wrap:wrap;gap:8px}.metric{background:#1b263c;border:1px solid var(--line);padding:7px 10px;border-radius:9px;font-size:13px}.metric strong{color:white}
+    footer{padding:0 clamp(16px,4vw,48px) 28px;color:var(--muted);font-size:12px;max-width:1500px;margin:auto}
+    @media(max-width:800px){main{grid-template-columns:1fr}.video-wrap,#viewer{min-height:220px}}
+  </style>
+</head>
+<body>
+  <header>
+    <div><h1>PhotoCatch</h1><p>摄像头检测 · 轮廓挤出 · 交互式 3D 预览</p></div>
+    <div class="status" id="serverStatus" role="status" aria-live="polite">正在检查后端…</div>
+  </header>
+  <main>
+    <section class="panel" aria-labelledby="captureTitle">
+      <h2 id="captureTitle">1. 捕捉与选择</h2>
+      <div class="content">
+        <div class="video-wrap"><video id="video" autoplay muted playsinline></video><div class="placeholder" id="videoPlaceholder">启动摄像头后，将目标放入画面中央。</div></div>
+        <canvas id="capture"></canvas>
+        <div class="actions">
+          <label for="videoFile">导入视频（MP4 / MOV 等）</label>
+          <input id="videoFile" type="file" accept="video/mp4,video/quicktime,video/x-m4v,video/x-msvideo,video/x-matroska,video/webm,.mp4,.mov,.m4v,.avi,.mkv,.webm">
+          <label for="videoMode">重建模式</label>
+          <select id="videoMode"><option value="ordinary">普通视频（移动相机）</option><option value="panorama360">360°全景（Insta360 / GoPro MAX）</option></select>
+          <button class="primary" id="analyzeVideo">提取多帧并评估</button>
+          <button id="runColmap" disabled>运行 COLMAP 多视角重建</button>
+        </div>
+        <div id="videoReport" class="message" role="status" aria-live="polite">可先导入视频，检查清晰度、可匹配特征和视角变化。此步骤只评估输入，不会声称已经重建 3D。普通视频与 360°全景视频请先选择正确模式。</div>
+        <div id="framePreviews" class="actions" aria-label="抽取的视频帧预览"></div>
+        <div class="actions">
+          <button class="primary" id="startCamera">启动摄像头</button>
+          <button id="stopCamera" disabled>关闭摄像头</button>
+          <button id="detect" disabled>检测当前帧</button>
+        </div>
+        <p class="hint">当前后端使用 MediaPipe 手部、人体姿态与自拍分割，不是通用物体识别模型。检测框可能包含背景或身体区域。</p>
+        <div id="message" class="message" role="status" aria-live="polite">请先启动摄像头，并允许浏览器访问摄像头。</div>
+        <div id="detections" aria-label="检测结果"><p class="hint">尚无检测结果。</p></div>
+        <div class="actions"><button class="primary" id="reconstruct" disabled>为所选区域生成 3D</button><button id="export" disabled>导出模型 JSON</button></div>
+      </div>
+    </section>
+    <section class="panel" aria-labelledby="modelTitle">
+      <h2 id="modelTitle">2. 3D 预览</h2>
+      <div class="content">
+        <div id="viewer"><div class="placeholder" id="viewerPlaceholder">完成检测并选择一个区域，然后生成 3D 网格。</div></div>
+        <div class="metrics" id="metrics"><span class="metric">尚无模型</span></div>
+        <p class="hint">拖动旋转，滚轮缩放。此原型把单张图像的二维轮廓沿深度方向挤出，并不恢复真实物体背面或真实几何深度。</p>
+      </div>
+    </section>
+  </main>
+  <footer>摄像头帧发送到配置的本地 PhotoCatch 后端（默认 http://127.0.0.1:5000）。请通过 localhost 或 HTTPS 打开本页面以获得摄像头权限。</footer>
+  <script type="module">
+    import * as THREE from 'three';
+    import { PLYLoader } from 'three/addons/loaders/PLYLoader.js';
+
+    const API_BASE = new URLSearchParams(location.search).get('api') || 'http://127.0.0.1:5000';
+    const $ = (id) => document.getElementById(id);
+    const video = $('video'), capture = $('capture'), ctx = capture.getContext('2d', {willReadFrequently:true});
+    const startBtn = $('startCamera'), stopBtn = $('stopCamera'), detectBtn = $('detect');
+    const reconstructBtn = $('reconstruct'), exportBtn = $('export');
+    let stream = null, frameDataUrl = null, detections = [], selectedDetection = null, modelData = null;
+    let renderer = null, scene = null, camera = null, mesh = null, wireframe = null;
+    let dragging = false, lastX = 0, lastY = 0, cameraDistance = 3;
+    const viewer = $('viewer');
+
+    function message(text, kind='info') {
+      const el = $('message'); el.textContent = text; el.dataset.kind = kind;
+    }
+    async function requestJson(path, options={}) {
+      let response;
+      try { response = await fetch(API_BASE + path, { ...options, headers:{'Content-Type':'application/json', ...(options.headers||{})} }); }
+      catch (error) { throw new Error('无法连接后端。请确认服务已启动：' + API_BASE); }
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || ('HTTP ' + response.status));
+      return data;
+    }
+    async function checkServer() {
+      try {
+        const data = await requestJson('/api/health');
+        $('serverStatus').textContent = '后端在线 · ' + (data.status || 'ok');
+        $('serverStatus').style.color = 'var(--good)';
+      } catch (error) {
+        $('serverStatus').textContent = '后端离线 · ' + error.message;
+        $('serverStatus').style.color = 'var(--bad)';
+      }
+    }
+    function syncVideoState() {
+      const active = !!stream && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA;
+      detectBtn.disabled = !active;
+      $('videoPlaceholder').style.display = active ? 'none' : 'grid';
+    }
+    async function startCamera() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'},audio:false});
+        video.srcObject = stream;
+        await video.play();
+        startBtn.disabled = true; stopBtn.disabled = false;
+        syncVideoState(); message('摄像头已启动。将目标放入画面后点击“检测当前帧”。','good');
+      } catch (error) {
+        message('无法启动摄像头：' + error.message + '。请检查浏览器权限，并通过 localhost 或 HTTPS 打开页面。','bad');
+      }
+    }
+    function stopCamera() {
+      if (stream) stream.getTracks().forEach(track => track.stop());
+      stream = null; video.srcObject = null;
+      startBtn.disabled = false; stopBtn.disabled = true; syncVideoState();
+    }
+    function captureFrame() {
+      const width = video.videoWidth, height = video.videoHeight;
+      if (!width || !height) throw new Error('摄像头尚未提供有效视频帧。');
+      capture.width = width; capture.height = height;
+      ctx.drawImage(video,0,0,width,height);
+      frameDataUrl = capture.toDataURL('image/jpeg',0.9);
+      return frameDataUrl;
+    }
+    async function analyzeVideoFile() {
+      const file = $('videoFile').files && $('videoFile').files[0];
+      if (!file) { $('videoReport').textContent = '请先选择一个视频文件。'; $('videoReport').dataset.kind='bad'; return; }
+      const button = $('analyzeVideo'); button.disabled = true;
+      $('videoReport').textContent = '正在上传并分析视频帧；视频较大时可能需要一些时间…';
+      $('framePreviews').replaceChildren();
+      try {
+        const form = new FormData(); form.append('video', file, file.name); form.append('mode', $('videoMode').value);
+        let response;
+        try { response = await fetch(API_BASE + '/api/video/analyze', {method:'POST', body:form}); }
+        catch (error) { throw new Error('无法连接后端。请确认服务已启动：' + API_BASE); }
+        const report = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(report.error || ('HTTP ' + response.status));
+        const v=report.video||{}, q=report.quality||{}, s=report.sampling||{};
+        $('runColmap').disabled = !report.reconstruction_ready;
+        const summary = [
+          report.message || '分析完成',
+          '视频：'+(v.width||'?')+'×'+(v.height||'?')+'，'+(v.duration_seconds??'?')+' 秒，'+(v.fps??'?')+' FPS',
+          '成功抽帧：'+(s.extracted_frames??0)+'；中位清晰度：'+(q.sharpness_median??'?'),
+          '几何一致帧对：'+(q.geometrically_supported_pairs??0)+'/'+(q.pairs_checked??0)+'；视差帧对：'+(q.parallax_pairs??0),
+          '初检结论：'+(report.reconstruction_ready?'可进入后续重建尝试':'暂不建议进入重建'),
+          ...(report.warnings||[])
+        ];
+        $('videoReport').textContent=summary.join('\n');
+        $('videoReport').dataset.kind=report.reconstruction_ready?'good':'bad';
+        (report.previews||[]).forEach((item,i)=>{
+          const wrap=document.createElement('div');wrap.style.cssText='width:140px;display:grid;gap:4px';
+          const img=document.createElement('img');img.src=item.image;img.alt='视频抽帧 '+(i+1);img.style.cssText='width:140px;max-height:160px;object-fit:contain;border:1px solid var(--line);border-radius:8px';
+          const caption=document.createElement('small');caption.textContent='帧 '+item.frame_index+' · 清晰度 '+item.sharpness;
+          wrap.append(img,caption);$('framePreviews').append(wrap);
+        });
+        if (report.reconstruction_ready) {
+          const note=document.createElement('p');note.className='hint';note.textContent='输入初检通过不代表重建一定成功。可尝试 COLMAP；最终仍以稀疏重建、深度融合和网格输出为准。';$('videoReport').append(note);
+        }
+      } catch(error) { $('runColmap').disabled=true; $('videoReport').textContent='视频分析失败：'+error.message; $('videoReport').dataset.kind='bad'; }
+      finally { button.disabled=false; }
+    }
+
+    async function runColmapReconstruction() {
+      const file=$('videoFile').files && $('videoFile').files[0];
+      if(!file){$('videoReport').textContent='请先选择视频文件。';return;}
+      const button=$('runColmap');button.disabled=true;
+      $('videoReport').textContent=$('videoMode').value==='panorama360'?'正在把 360° 全景帧投影为六个重叠透视视图，再运行 SfM/MVS。真实深度仍依赖拍摄过程中的相机平移视差。':'正在运行普通视频 COLMAP SfM/MVS。该过程可能需要数分钟到更久；请勿关闭后端。';
+      try {
+        const form=new FormData();form.append('video',file,file.name);form.append('mode',$('videoMode').value);
+        let response;
+        try { response=await fetch(API_BASE+'/api/video/reconstruct',{method:'POST',body:form}); }
+        catch(error){throw new Error('无法连接后端：'+API_BASE);}
+        const result=await response.json().catch(()=>({}));
+        if(!response.ok) {
+          const detail=result.analysis && result.analysis.warnings ? '\\n'+result.analysis.warnings.join('\n') : '';
+          throw new Error((result.error||('HTTP '+response.status))+detail);
+        }
+        const meshResponse=await fetch(API_BASE+result.mesh_url);
+        if(!meshResponse.ok) throw new Error('COLMAP 已返回，但无法下载网格文件。');
+        const buffer=await meshResponse.arrayBuffer();
+        const geometry=new PLYLoader().parse(buffer);
+        if(!geometry.getAttribute('position')||geometry.getAttribute('position').count<3) throw new Error('COLMAP 网格没有足够顶点。');
+        geometry.computeVertexNormals();
+        const pos=geometry.getAttribute('position');
+        const meshData={vertices:pos.count,faces:geometry.index?geometry.index.count/3:pos.count/3,colors:geometry.getAttribute('color')?pos.count:0};
+        initViewer();
+        if(mesh){scene.remove(mesh);mesh.geometry.dispose();mesh.material.dispose();}
+        const material=new THREE.MeshStandardMaterial({color:0xffffff,vertexColors:!!geometry.getAttribute('color'),roughness:0.85,side:THREE.DoubleSide});
+        mesh=new THREE.Mesh(geometry,material);scene.add(mesh);
+        const bounds=new THREE.Box3().setFromObject(mesh),size=bounds.getSize(new THREE.Vector3()),maxDim=Math.max(size.x,size.y,size.z);
+        if(!Number.isFinite(maxDim)||maxDim<=0) throw new Error('网格尺寸无效。');
+        mesh.position.sub(bounds.getCenter(new THREE.Vector3()));
+        cameraDistance=Math.max(1.5,maxDim*2.2);camera.position.set(0,0,cameraDistance);camera.lookAt(0,0,0);
+        $('viewerPlaceholder').style.display='none';
+        $('metrics').replaceChildren();
+        [['网格顶点',meshData.vertices],['三角面',Math.round(meshData.faces)],['顶点颜色',meshData.colors],['文件字节',buffer.byteLength]].forEach(([label,value])=>{
+          const span=document.createElement('span');span.className='metric';span.textContent=label+' ';const strong=document.createElement('strong');strong.textContent=String(value);span.append(strong);$('metrics').append(span);
+        });
+        modelData={format:'PhotoCatchCOLMAPMesh',version:1,job_id:result.job_id,mesh_url:result.mesh_url,point_cloud_url:result.point_cloud_url,method:result.method,mesh_bytes:buffer.byteLength,vertices:meshData.vertices,faces:Math.round(meshData.faces)};
+        exportBtn.disabled=true;
+        const quality=result.mesh_quality||{};
+        const warnings=Array.isArray(quality.warnings)?quality.warnings:[];
+        $('videoReport').textContent='COLMAP 已生成并通过基础几何检查。相机注册：'+(result.registered_images??'?')+'/'+(result.input_images??'?')+'\n连通组件：'+(quality.connected_components??'?')+'；水密：'+(quality.watertight?'是':'否')+'；纹理贴图：'+(quality.textured?'有':'无')+'\n'+warnings.join('\n')+'\n'+result.note;
+        $('videoReport').dataset.kind=(quality.watertight && quality.connected_components===1 && quality.textured)?'good':'bad';
+        message('COLMAP 网格已载入。请核对目标身份、孔洞、碎片与纹理；几何生成不代表真实模型验收通过。',quality.watertight && quality.connected_components===1 && quality.textured?'good':'bad');
+      } catch(error) {
+        $('videoReport').textContent='多视角重建失败：'+error.message+'\\n不会回退到轮廓挤出并冒充成功。';
+        $('videoReport').dataset.kind='bad';
+      } finally { button.disabled=false; }
+    }
+
+    async function detectFrame() {
+      detectBtn.disabled = true; reconstructBtn.disabled = true;
+      try {
+        const image = captureFrame();
+        message('正在检测当前帧…');
+        const data = await requestJson('/api/detect',{method:'POST',body:JSON.stringify({image})});
+        detections = Array.isArray(data.detections) ? data.detections : [];
+        selectedDetection = null; renderDetections();
+        message('检测完成：返回 ' + detections.length + ' 个候选区域。请在列表中选择一个区域。', 'good');
+      } catch(error) { message(error.message,'bad'); }
+      finally { syncVideoState(); }
+    }
+    function renderDetections() {
+      const root = $('detections'); root.replaceChildren();
+      if (!detections.length) {
+        const p=document.createElement('p'); p.className='hint'; p.textContent='没有找到候选区域。请调整光线、构图后重新检测。'; root.append(p); return;
+      }
+      detections.forEach((det,index) => {
+        const bbox=det.bbox;
+        if (!Array.isArray(bbox) || bbox.length!==4 || !bbox.every(Number.isFinite)) return;
+        const button=document.createElement('button'); button.className='detection'; button.type='button';
+        button.setAttribute('aria-pressed','false');
+        const left=document.createElement('span'); left.textContent=det.label || (det.type || '区域') + ' ' + (index+1);
+        const right=document.createElement('small'); right.textContent=(det.type || '候选')+' · '+bbox.map(Math.round).join(', ');
+        button.append(left,right);
+        button.addEventListener('click',()=>{
+          selectedDetection={...det,bbox:bbox.map(Math.round)};
+          root.querySelectorAll('button').forEach(el=>el.setAttribute('aria-pressed',String(el===button)));
+          reconstructBtn.disabled=false;
+          message('已选择区域：'+left.textContent+'。点击“为所选区域生成 3D”。','good');
+        });
+        root.append(button);
+      });
+    }
+    function initViewer() {
+      if (renderer) return;
+      scene = new THREE.Scene(); scene.background = new THREE.Color(0x050812);
+      camera = new THREE.PerspectiveCamera(45,1,0.01,100); camera.position.set(0,0,cameraDistance);
+      renderer = new THREE.WebGLRenderer({antialias:true,alpha:false});
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      viewer.prepend(renderer.domElement);
+      scene.add(new THREE.AmbientLight(0xffffff,1.5));
+      const light = new THREE.DirectionalLight(0xffffff,2.2); light.position.set(2,3,4); scene.add(light);
+      resizeViewer(); window.addEventListener('resize',resizeViewer);
+      renderer.domElement.addEventListener('pointerdown',e=>{dragging=true;lastX=e.clientX;lastY=e.clientY;renderer.domElement.setPointerCapture(e.pointerId);});
+      renderer.domElement.addEventListener('pointermove',e=>{
+        if(!dragging||!mesh)return;
+        mesh.rotation.y += (e.clientX-lastX)*0.01; mesh.rotation.x += (e.clientY-lastY)*0.01; lastX=e.clientX;lastY=e.clientY;
+      });
+      renderer.domElement.addEventListener('pointerup',()=>dragging=false);
+      renderer.domElement.addEventListener('pointercancel',()=>dragging=false);
+      renderer.domElement.addEventListener('wheel',e=>{e.preventDefault();cameraDistance=Math.max(0.8,Math.min(15,cameraDistance+e.deltaY*0.004));camera.position.z=cameraDistance;},{passive:false});
+      const animate=()=>{requestAnimationFrame(animate);renderer.render(scene,camera);}; animate();
+    }
+    function resizeViewer() {
+      if(!renderer||!camera)return;
+      const w=Math.max(1,viewer.clientWidth),h=Math.max(1,viewer.clientHeight);
+      renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();
+    }
+    function renderModel(data) {
+      if(!Array.isArray(data.vertices)||!Array.isArray(data.faces)||!data.vertices.length||!data.faces.length) throw new Error('后端返回的模型网格为空或格式错误。');
+      for(const v of data.vertices) if(!Array.isArray(v)||v.length!==3||!v.every(Number.isFinite)) throw new Error('模型顶点数据无效。');
+      for(const f of data.faces) if(!Array.isArray(f)||f.length!==3||!f.every(i=>Number.isInteger(i)&&i>=0&&i<data.vertices.length)) throw new Error('模型三角面索引无效。');
+      initViewer();
+      if(mesh) { scene.remove(mesh); mesh.geometry.dispose(); mesh.material.dispose(); }
+      const indexed=new THREE.BufferGeometry();
+      indexed.setAttribute('position',new THREE.Float32BufferAttribute(data.vertices.flat(),3));
+      indexed.setIndex(data.faces.flat());
+      const geometry=indexed.toNonIndexed(); indexed.dispose();
+      if(Array.isArray(data.colors)&&data.colors.length===data.faces.length&&data.colors.every(c=>Array.isArray(c)&&c.length>=3)) {
+        const colorValues=[];
+        for(const color of data.colors) { const rgb=color.slice(0,3).map(n=>Number.isFinite(n)?Math.max(0,Math.min(1,n)):0.5);colorValues.push(...rgb,...rgb,...rgb); }
+        if(colorValues.length===geometry.getAttribute('position').count*3) geometry.setAttribute('color',new THREE.Float32BufferAttribute(colorValues,3));
+      }
+      geometry.computeVertexNormals();
+      const material=new THREE.MeshStandardMaterial({color:0xffffff,vertexColors:geometry.getAttribute('color')!==undefined,roughness:0.72,metalness:0.02,side:THREE.DoubleSide});
+      mesh=new THREE.Mesh(geometry,material);
+      const edgeGeometry=new THREE.EdgesGeometry(geometry);
+      wireframe=new THREE.LineSegments(edgeGeometry,new THREE.LineBasicMaterial({color:0x6579ef,transparent:true,opacity:0.45}));
+      mesh.add(wireframe);scene.add(mesh);
+      const box=new THREE.Box3().setFromObject(mesh),size=box.getSize(new THREE.Vector3());
+      const maxDim=Math.max(size.x,size.y,size.z);
+      if(Number.isFinite(maxDim)&&maxDim>0) { mesh.position.sub(box.getCenter(new THREE.Vector3()));cameraDistance=Math.max(1.5,maxDim*2.2);camera.position.set(0,0,cameraDistance);camera.lookAt(0,0,0); }
+      $('viewerPlaceholder').style.display='none';
+      $('metrics').replaceChildren();
+      [['顶点',data.vertices.length],['三角面',data.faces.length],['颜色',Array.isArray(data.colors)?data.colors.length:0]].forEach(([label,value])=>{
+        const span=document.createElement('span');span.className='metric';span.textContent=label+' ';const strong=document.createElement('strong');strong.textContent=String(value);span.append(strong);$('metrics').append(span);
+      });
+      modelData=data;exportBtn.disabled=false;
+    }
+    async function reconstruct() {
+      if(!frameDataUrl||!selectedDetection)return;
+      reconstructBtn.disabled=true;
+      try {
+        message('正在生成轮廓挤出网格…');
+        const data=await requestJson('/api/reconstruct',{method:'POST',body:JSON.stringify({image:frameDataUrl,bbox:selectedDetection.bbox})});
+        const model=data.model || data;
+        renderModel(model);
+        message('模型已生成。注意：这是基于单帧轮廓的实验性挤出模型，不是完整真实物体重建。','good');
+      } catch(error) { message(error.message,'bad'); }
+      finally { reconstructBtn.disabled=!selectedDetection; }
+    }
+    function exportModel() {
+      if(!modelData)return;
+      const blob=new Blob([JSON.stringify({format:'PhotoCatchMesh',version:1,...modelData},null,2)],{type:'application/json'});
+      const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='photocatch-model.json';a.click();URL.revokeObjectURL(url);
+    }
+    $('analyzeVideo').addEventListener('click',analyzeVideoFile);
+    $('runColmap').addEventListener('click',runColmapReconstruction);
+    startBtn.addEventListener('click',startCamera);stopBtn.addEventListener('click',stopCamera);
+    detectBtn.addEventListener('click',detectFrame);reconstructBtn.addEventListener('click',reconstruct);exportBtn.addEventListener('click',exportModel);
+    window.addEventListener('beforeunload',stopCamera);
+    checkServer();
+  </script>
+</body>
+</html>
