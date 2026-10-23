@@ -33,3 +33,9 @@ test('topology edits fail closed before conversion when geometry metadata is uns
   assert.match(html,/function geometryToCore\(g\)\{assertTopologyEditable\(g\)/,'must guard before welding/converting the source geometry');
   assert.match(html,/为防止数据丢失，已阻止此网格的拓扑编辑/,'must fail closed rather than silently drop data');
 });
+
+test('Blender repair is reachable from workspace and backend API',()=>{
+  assert.match(html,/id="blenderRepair"/,'workspace must expose a dedicated Blender repair action');
+  assert.match(html,/fetch\('http:\/\/127\.0\.0\.1:5000\/api\/mesh\/repair'/,'UI must call the local Blender repair endpoint');
+  assert.match(html,/Blender 修复完成并已下载新 GLB/,'UI must report the output as a separate download, not claim in-place replacement');
+});
