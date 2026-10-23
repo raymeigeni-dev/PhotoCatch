@@ -16,12 +16,13 @@ The configured gateway must implement:
 
 1. `POST /jobs`: multipart field `video`; return JSON with non-empty `job_id`.
 2. `GET /jobs/{job_id}`: return JSON status `queued`, `running`, `succeeded`, or `failed`.
-3. Optional `GET /jobs/{job_id}/result`: gateway-specific result retrieval is not yet normalized by this adapter.
+3. `GET /jobs/{job_id}/result`: return a JSON object containing an `assets` list or object. The API exposes this manifest; the assets themselves are not downloaded to the Mac automatically yet.
 
 API endpoints:
 - `GET /api/reconstruction/engines`: reports local tool availability and cloud configuration.
 - `POST /api/video/reconstruct/cloud`: submits a video and returns the remote job ID.
 - `GET /api/video/reconstruct/cloud/<job_id>`: polls remote status.
+- `GET /api/video/reconstruct/cloud/<job_id>/result`: fetches the provider result manifest; it does not download remote assets to local storage.
 
 ## Local paths
 
