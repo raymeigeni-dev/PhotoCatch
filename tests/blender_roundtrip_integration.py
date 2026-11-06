@@ -94,7 +94,9 @@ def make_fixture():
             uv.data[li].uv = uvco
     obj.location = (1.25, -2.0, 0.5)
     obj.rotation_euler = (0.1, 0.2, 0.3)
-    obj.scale = (1.2, 0.9, 1.1)
+    # glTF node TRS cannot encode arbitrary shear. Use a non-identity uniform
+    # scale so the nested child transform remains representable after export.
+    obj.scale = (1.2, 1.2, 1.2)
 
     # Real armature + vertex-group weights, exported through the same GLB path.
     rig_data = bpy.data.armatures.new("FixtureRigData")
