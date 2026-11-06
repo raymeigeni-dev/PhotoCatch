@@ -74,3 +74,32 @@ Recommended capture:
 ## Explicit non-goals of this milestone
 
 No camera SDK driver, motor controller, hardware trigger firmware, segmentation model, dense MVS mesh, texture atlas, Android/iOS AR client, or light-field display driver is claimed implemented. Those are separate deliverables with hardware-specific acceptance tests.
+
+
+## File contract and invocation
+
+The calibration JSON uses `schema_version: 1`, `unit`, exactly three camera records (`camera_id`, 3x3 `intrinsics`, distortion coefficients, 4x4 `camera_from_rig`, image dimensions), 4x4 `rig_from_turntable` and `turntable_from_object`, and a `scale_calibration` object. Matrices are rigid transforms; camera extrinsics are measured, never inferred from the proposed 0/120/240 degree mounting labels.
+
+The capture manifest contains at least two `capture_groups`. Every group must include:
+- unique `capture_id`;
+- `angle_deg` measured by the encoder at exposure time;
+- `encoder_timestamp_ns`;
+- exactly one frame record for each calibrated camera;
+- each frame's `timestamp_ns`, `image_path` and `mask_path`.
+
+The encoder timestamp and all three camera exposure timestamps must fall within `max_sync_skew_ns`. Paths are relative to the capture manifest. Masks must be real per-frame foreground masks aligned to the original images.
+
+Run from the repository root:
+
+```bash
+python -m backend.rotational_capture.cli \
+  --calibration /path/to/calibration.json \
+  --capture-manifest /path/to/capture.json \
+  --output /path/to/output \
+  --bounds-min -0.15 -0.15 0.00 \
+  --bounds-max 0.15 0.15 0.40 \
+  --voxel-size 0.002 \
+  --min-observations 6
+```
+
+The command intentionally requires the user to supply measured bounds and voxel size. It does not generate a default object, assume a scale, or claim an uncalibrated unit is metric.
