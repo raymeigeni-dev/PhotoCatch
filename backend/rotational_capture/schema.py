@@ -21,6 +21,7 @@ class CameraCalibration:
     camera_from_rig: np.ndarray
     image_width: int
     image_height: int
+    shutter_type: str
 
 
 @dataclass(frozen=True)
@@ -97,6 +98,11 @@ def load_calibration(path: str | Path) -> RigCalibration:
         width, height = int(item.get("image_width", 0)), int(item.get("image_height", 0))
         if width < 32 or height < 32:
             raise CaptureValidationError(f"{camera_id} 图像尺寸无效。")
+        shutter_type = str(item.get("shutter_type", "unknown")).lower()
+        if shutter_type != "global":
+            raise CaptureValidationError(
+                f"{camera_id} 必须声明 global shutter；当前流水线尚未实现 rolling-shutter 行时补偿。"
+            )
         cameras[camera_id] = CameraCalibration(
             camera_id=camera_id,
             intrinsics=intrinsics,
@@ -104,6 +110,7 @@ def load_calibration(path: str | Path) -> RigCalibration:
             camera_from_rig=_rigid_transform(item.get("camera_from_rig"), f"{camera_id}.camera_from_rig"),
             image_width=width,
             image_height=height,
+            shutter_type=shutter_type,
         )
 
     scale = raw.get("scale_calibration", {})
