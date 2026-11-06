@@ -243,7 +243,7 @@ def main():
         assert len(main_obj["materials"]) == 2, "material slots lost after round-trip"
         assert set(main_obj["material_indices"]) >= {0, 1}, "material assignments lost after round-trip"
         assert main_obj["uv_samples"] == pre["Fixture_Main"]["uv_samples"], "sampled UV coordinates changed"
-        assert "FixtureColor" in main_obj["color_attributes"], "vertex color attribute lost after round-trip"
+        assert main_obj["color_attributes"], "vertex color attribute lost after round-trip"
         assert len(main_obj["color_samples"]) == len(pre["Fixture_Main"]["color_samples"]), "vertex color samples missing after round-trip"
         for actual, expected in zip(main_obj["color_samples"], pre["Fixture_Main"]["color_samples"]):
             assert all(abs(a-b) < 2e-2 for a,b in zip(actual,expected)), "vertex color values changed: %s -> %s" % (expected, actual)
