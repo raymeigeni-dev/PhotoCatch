@@ -137,6 +137,7 @@ def test_capture_manifest_rejects_rotation_direction_reversal(tmp_path):
     raw["capture_groups"].append({
         "capture_id": "capture_2",
         "angle_deg": 5.0,
+        "encoder_timestamp_ns": 20_000_100,
         "frames": raw["capture_groups"][0]["frames"],
     })
     path.write_text(json.dumps(raw))
