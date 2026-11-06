@@ -32,6 +32,7 @@ def _write_rig(root: Path, *, unit: str = "cm") -> Path:
             "camera_from_rig": identity,
             "image_width": 64,
             "image_height": 64,
+            "shutter_type": "global",
         })
     path = root / "calibration.json"
     path.write_text(json.dumps({
