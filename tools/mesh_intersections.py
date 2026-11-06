@@ -22,7 +22,7 @@ def _segments2(a,b,c,d,e):
     o1,o2,o3,o4 = _orient(a,b,c),_orient(a,b,d),_orient(c,d,a),_orient(c,d,b)
     if ((o1>e and o2 < -e) or (o1 < -e and o2>e)) and ((o3>e and o4 < -e) or (o3 < -e and o4>e)): return True
     return ((abs(o1)<=e and _on_segment(c,a,b,e)) or (abs(o2)<=e and _on_segment(d,a,b,e)) or
-            (abs(o3)<=e and _on_segment(a,c,d,e)) or (abs(o4)<=e and _on_segment(b,c,d,e))
+            (abs(o3)<=e and _on_segment(a,c,d,e)) or (abs(o4)<=e and _on_segment(b,c,d,e)))
 
 def _point_tri2(p,t,e):
     v = (_orient(t[0],t[1],p),_orient(t[1],t[2],p),_orient(t[2],t[0],p))
