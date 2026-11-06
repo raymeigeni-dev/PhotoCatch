@@ -121,7 +121,7 @@ def reconstruct_visual_hull(
     candidates = np.column_stack((xx.ravel(), yy.ravel(), zz.ravel()))
 
     rejected = np.zeros(len(candidates), dtype=bool)
-    seen = np.zeros(len(candidates), dtype=np.uint16)
+    seen = np.zeros(len(candidates), dtype=np.uint32)
     decoded: list[tuple[Any, Any, np.ndarray, np.ndarray]] = []
     for observation in sequence.observations:
         camera = rig.cameras.get(observation.camera_id)
@@ -129,8 +129,10 @@ def reconstruct_visual_hull(
             raise RotationalCaptureError(f"未标定的相机：{observation.camera_id}")
         image, mask = _load_observation_pixels(observation, camera)
         pixels, depth = project_object_points(candidates, camera, rig, observation.angle_deg)
-        u = np.rint(pixels[:, 0]).astype(np.int64)
-        v = np.rint(pixels[:, 1]).astype(np.int64)
+        finite_pixels = np.isfinite(pixels).all(axis=1)
+        safe_pixels = np.where(finite_pixels[:, None], pixels, -1e9)
+        u = np.rint(safe_pixels[:, 0]).astype(np.int64)
+        v = np.rint(safe_pixels[:, 1]).astype(np.int64)
         in_frame = (
             (depth > 0)
             & (u >= 0) & (u < camera.image_width)
@@ -159,10 +161,14 @@ def reconstruct_visual_hull(
     for observation, image, mask, _ in decoded:
         camera = rig.cameras[observation.camera_id]
         pixels, depth = project_object_points(surface_centers, camera, rig, observation.angle_deg)
-        u = np.rint(pixels[:, 0]).astype(np.int64)
-        v = np.rint(pixels[:, 1]).astype(np.int64)
+        finite_pixels = np.isfinite(pixels).all(axis=1)
+        safe_pixels = np.where(finite_pixels[:, None], pixels, -1e9)
+        u = np.rint(safe_pixels[:, 0]).astype(np.int64)
+        v = np.rint(safe_pixels[:, 1]).astype(np.int64)
         valid = (
-            (depth > 0)
+            finite_pixels
+            & np.isfinite(depth)
+            & (depth > 0)
             & (u >= 0) & (u < camera.image_width)
             & (v >= 0) & (v < camera.image_height)
         )
