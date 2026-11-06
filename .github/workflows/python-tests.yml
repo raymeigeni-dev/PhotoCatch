@@ -2,7 +2,7 @@ name: Python backend tests
 
 on:
   push:
-    branches: [main, "codex/**"]
+    branches: [main, "codex/**", "feat/**"]
   pull_request:
     branches: [main]
   workflow_dispatch:

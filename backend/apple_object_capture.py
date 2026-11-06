@@ -55,9 +55,15 @@ def run_apple_capture(image_dir: str | Path, output_usdz: str | Path, timeout_se
                 break
         except json.JSONDecodeError:
             continue
-    if proc.returncode != 0 or not parsed.get("ok"):
+    if proc.returncode != 0:
         detail = parsed.get("error") or (proc.stderr or proc.stdout or "Native reconstruction failed").strip()
         raise AppleCaptureError(str(detail)[:2000])
+    if parsed.get("error"):
+        raise AppleCaptureError(str(parsed["error"])[:2000])
+    if parsed.get("ok") is not True:
+        if not output.is_file() or output.stat().st_size <= 0:
+            raise AppleCaptureError("Native helper exited successfully but no non-empty USDZ file exists.")
+        raise AppleCaptureError("Native helper produced an output without machine-readable success confirmation.")
     if not output.is_file() or output.stat().st_size <= 0:
         raise AppleCaptureError("Native helper reported success but no non-empty USDZ file exists.")
     return {
