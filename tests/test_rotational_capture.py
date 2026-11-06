@@ -203,3 +203,33 @@ def test_calibration_rejects_rolling_shutter_without_row_time_model(tmp_path):
     path.write_text(json.dumps(raw))
     with pytest.raises(CaptureValidationError, match="global shutter"):
         load_calibration(path)
+
+
+def test_capture_manifest_rejects_encoder_angle_not_synchronized_to_exposure(tmp_path):
+    path = _write_capture(tmp_path)
+    raw = json.loads(path.read_text())
+    raw["capture_groups"][0]["encoder_timestamp_ns"] += 50_000
+    path.write_text(json.dumps(raw))
+    with pytest.raises(CaptureValidationError, match="编码器角度采样与曝光时间不同步"):
+        load_capture_sequence(path)
+
+
+def test_visual_hull_rejects_empty_masks_instead_of_fabricating_geometry(tmp_path):
+    calibration = _write_rig(tmp_path)
+    capture = _write_capture(tmp_path)
+    raw = json.loads(capture.read_text())
+    for group in raw["capture_groups"]:
+        for frame in group["frames"]:
+            mask_path = tmp_path / frame["mask_path"]
+            empty = np.zeros((64, 64), dtype=np.uint8)
+            assert cv2.imwrite(str(mask_path), empty)
+    with pytest.raises(RotationalCaptureError, match="没有体素通过"):
+        reconstruct_visual_hull(
+            calibration,
+            capture,
+            tmp_path / "out",
+            bounds_min=[-0.1] * 3,
+            bounds_max=[0.1] * 3,
+            voxel_size=0.1,
+            min_observations=1,
+        )
