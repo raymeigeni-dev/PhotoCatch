@@ -194,6 +194,8 @@ def main():
         clear_scene()
         bpy.ops.import_scene.gltf(filepath=output)
         post = snapshot()
+        print("BLENDER_ROUNDTRIP_PRE=" + json.dumps(pre, ensure_ascii=False))
+        print("BLENDER_ROUNDTRIP_POST=" + json.dumps(post, ensure_ascii=False))
         for name in ("Fixture_Main", "Fixture_Child"):
             assert name in post, "object lost after round-trip: " + name
             assert post[name]["type"] == pre[name]["type"], "object type changed: " + name
