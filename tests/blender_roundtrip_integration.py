@@ -251,6 +251,7 @@ def main():
             assert all(abs(a-b) < 2e-2 for a,b in zip(actual,expected)), "vertex color values changed: %s -> %s" % (expected, actual)
         assert report.get("objects"), "repair report contains no mesh objects"
         repair_items = {item.get("object"): item for item in report["objects"]}
+        print("BLENDER_REPAIR_REPORT=" + json.dumps(report, ensure_ascii=False))
         assert main_mesh_name in repair_items, "main mesh metrics missing from report"
         metrics = repair_items[main_mesh_name]
         assert "before" in metrics and "after" in metrics, "before/after metrics missing"
