@@ -112,6 +112,10 @@ def make_fixture():
     group.add(list(range(len(mesh.vertices))), 1.0, "REPLACE")
     modifier = obj.modifiers.new(name="FixtureArmature", type="ARMATURE")
     modifier.object = rig
+    # glTF skins require the armature to be the skinned mesh's parent. Keep the
+    # world transform unchanged while making the fixture structurally valid.
+    obj.parent = rig
+    obj.matrix_parent_inverse = rig.matrix_world.inverted()
 
     bpy.ops.mesh.primitive_cube_add(size=0.5, location=(0,0,2))
     child = bpy.context.object
