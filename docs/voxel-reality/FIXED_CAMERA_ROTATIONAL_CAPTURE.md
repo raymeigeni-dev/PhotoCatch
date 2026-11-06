@@ -78,7 +78,7 @@ No camera SDK driver, motor controller, hardware trigger firmware, segmentation 
 
 ## File contract and invocation
 
-The calibration JSON uses `schema_version: 1`, `unit`, exactly three camera records (`camera_id`, 3x3 `intrinsics`, distortion coefficients, 4x4 `camera_from_rig`, image dimensions), 4x4 `rig_from_turntable` and `turntable_from_object`, and a `scale_calibration` object. Matrices are rigid transforms; camera extrinsics are measured, never inferred from the proposed 0/120/240 degree mounting labels.
+The calibration JSON uses `schema_version: 1`, `unit`, exactly three camera records (`camera_id`, 3x3 `intrinsics`, distortion coefficients, 4x4 `camera_from_rig`, image dimensions, and `shutter_type: global`), 4x4 `rig_from_turntable` and `turntable_from_object`, and a `scale_calibration` object. Matrices are rigid transforms; camera extrinsics are measured, never inferred from the proposed 0/120/240 degree mounting labels.
 
 The capture manifest contains at least two `capture_groups`. Every group must include:
 - unique `capture_id`;
