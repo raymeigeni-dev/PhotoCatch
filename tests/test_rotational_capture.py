@@ -194,3 +194,12 @@ def test_visual_hull_rejects_bounds_exceeding_candidate_limit(tmp_path):
             bounds_min=[-1.0] * 3, bounds_max=[1.0] * 3,
             voxel_size=0.01, max_candidate_voxels=100,
         )
+
+
+def test_calibration_rejects_rolling_shutter_without_row_time_model(tmp_path):
+    path = _write_rig(tmp_path)
+    raw = json.loads(path.read_text())
+    raw["cameras"][1]["shutter_type"] = "rolling"
+    path.write_text(json.dumps(raw))
+    with pytest.raises(CaptureValidationError, match="global shutter"):
+        load_calibration(path)
