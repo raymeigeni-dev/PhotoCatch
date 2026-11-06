@@ -150,8 +150,11 @@ def load_capture_sequence(path: str | Path) -> CaptureSequence:
     for group in groups:
         capture_id = str(group.get("capture_id", "")).strip()
         angle = float(group.get("angle_deg", float("nan")))
-        if not capture_id or not np.isfinite(angle):
-            raise CaptureValidationError("每个采集组都必须具有 capture_id 和有限 encoder angle_deg。")
+        encoder_timestamp = int(group.get("encoder_timestamp_ns", -1))
+        if not capture_id or not np.isfinite(angle) or encoder_timestamp < 0:
+            raise CaptureValidationError(
+                "每个采集组都必须具有 capture_id、有限 encoder angle_deg 和 encoder_timestamp_ns。"
+            )
         if previous_angle is not None:
             delta = (angle - previous_angle + 180.0) % 360.0 - 180.0
             if abs(delta) < 1e-6:
@@ -190,6 +193,13 @@ def load_capture_sequence(path: str | Path) -> CaptureSequence:
         if max(timestamps) - min(timestamps) > max_skew:
             raise CaptureValidationError(
                 f"{capture_id} 三台相机曝光不同步：skew={max(timestamps)-min(timestamps)} ns，"
+                f"limit={max_skew} ns。"
+            )
+        exposure_midpoint = int(round(float(np.mean(timestamps))))
+        encoder_skew = abs(encoder_timestamp - exposure_midpoint)
+        if encoder_skew > max_skew:
+            raise CaptureValidationError(
+                f"{capture_id} 编码器角度采样与曝光时间不同步：skew={encoder_skew} ns，"
                 f"limit={max_skew} ns。"
             )
 
