@@ -67,6 +67,7 @@ def _write_capture(root: Path, *, skew_ns: int = 100, missing_camera: bool = Fal
         groups.append({
             "capture_id": f"capture_{group_index}",
             "angle_deg": angle,
+            "encoder_timestamp_ns": group_index * 10_000_000 + skew_ns,
             "frames": frames,
         })
     path = root / "capture.json"
