@@ -16,8 +16,16 @@ jobs:
       - name: Install Blender
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y blender
+          sudo apt-get install --no-install-recommends -y blender python3-numpy
       - name: Report Blender version
         run: blender --version
       - name: Run GLB repair round-trip integration test
-        run: blender --background --python tests/blender_roundtrip_integration.py -- tools/blender_repair.py
+        shell: bash
+        run: |
+          set -euo pipefail
+          log="$(mktemp)"
+          blender --background --python tests/blender_roundtrip_integration.py -- tools/blender_repair.py 2>&1 | tee "$log"
+          if ! grep -Fq "PHOTOCATCH_BLENDER_ROUNDTRIP=" "$log"; then
+            echo "Blender exited without the required end-to-end PASS marker."
+            exit 1
+          fi
