@@ -14,6 +14,13 @@ import json
 import os
 import sys
 from mathutils import Vector
+
+# Blender's embedded Python does not consistently prepend the executed script's
+# directory to sys.path across packaged builds. Resolve the sibling detector
+# explicitly so the repair adapter is independent of the caller's working dir.
+TOOLS_DIR = os.path.dirname(os.path.abspath(__file__))
+if TOOLS_DIR not in sys.path:
+    sys.path.insert(0, TOOLS_DIR)
 from mesh_intersections import count_self_intersections
 
 
